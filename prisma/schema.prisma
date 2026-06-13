@@ -1,0 +1,254 @@
+// Multi-tenant store factory schema.
+//
+// SQLite is used for local development. The schema is intentionally
+// Postgres-compatible: to deploy on Postgres, change the datasource provider
+// to "postgresql" and (optionally) convert the String fields documented as
+// "JSON-encoded" below to native `Json` columns, and the *Status/*Type String
+// fields to native enums. SQLite does not support `Json` or `enum` in Prisma,
+// so we store JSON as validated strings and constrain enums in application
+// code with Zod (see src/lib/types.ts and src/lib/validation/schemas.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id                        String   @id @default(cuid())
+  slug                      String   @unique
+  name                      String
+  legalName                 String
+  primaryDomain             String
+  locale                    String   @default("en-US")
+  currency                  String   @default("USD")
+  niche                     String
+  positioning               String
+  audience                  String
+  valueProposition          String
+  brandVoice                String
+  logoText                  String
+  supportEmail              String
+  supportPhone              String?
+  shippingOriginDisclosure  String
+  defaultShippingDaysMin    Int      @default(5)
+  defaultShippingDaysMax    Int      @default(12)
+  returnPolicySummary       String
+  privacyPolicy             String
+  termsOfSale               String
+  isActive                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  theme                 StoreTheme?
+  domains               Domain[]
+  categories            Category[]
+  products              Product[]
+  contentPages          ContentPage[]
+  collections           Collection[]
+  cartEvents            CartEvent[]
+  newsletterSubscribers NewsletterSubscriber[]
+  experiments           Experiment[]
+}
+
+model StoreTheme {
+  id              String @id @default(cuid())
+  storeId         String @unique
+  primaryColor    String
+  secondaryColor  String
+  accentColor     String
+  backgroundColor String
+  textColor       String
+  borderRadius    String @default("0.75rem")
+  fontHeading     String @default("system-ui")
+  fontBody        String @default("system-ui")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model Domain {
+  id        String  @id @default(cuid())
+  storeId   String
+  hostname  String  @unique
+  isPrimary Boolean @default(false)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model Category {
+  id             String @id @default(cuid())
+  storeId        String
+  slug           String
+  name           String
+  description    String
+  seoTitle       String
+  seoDescription String
+  heroTitle      String
+  heroSubtitle   String
+  sortOrder      Int    @default(0)
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+}
+
+model Product {
+  id                String   @id @default(cuid())
+  storeId           String
+  categoryId        String
+  slug              String
+  title             String
+  subtitle          String
+  description       String
+  shortDescription  String
+  brand             String
+  sku               String
+  gtin              String?
+  imageUrl          String
+  imageAlt          String
+  price             Float
+  compareAtPrice    Float?
+  currency          String   @default("USD")
+  cost              Float
+  shippingCost      Float
+  marginPercent     Float
+  // One of: IN_STOCK | LOW_STOCK | OUT_OF_STOCK | PREORDER (enum in app code)
+  stockStatus       String   @default("IN_STOCK")
+  supplierName      String
+  supplierProductId String
+  shippingDaysMin   Int
+  shippingDaysMax   Int
+  countryOfOrigin   String?
+  materials         String?
+  warranty          String?
+  returnable        Boolean  @default(true)
+  ratingAverage     Float?
+  ratingCount       Int      @default(0)
+  // JSON-encoded string[] (use native Json on Postgres)
+  pros              String   @default("[]")
+  // JSON-encoded string[]
+  cons              String   @default("[]")
+  // JSON-encoded { label, value }[]
+  specs             String   @default("[]")
+  // JSON-encoded string[] of use-case tags (drives quiz + recommendations)
+  useCases          String   @default("[]")
+  // JSON-encoded { question, answer }[]
+  faq               String   @default("[]")
+  seoTitle          String
+  seoDescription    String
+  canonicalUrl      String?
+  productScore      Float    @default(0)
+  isPublished       Boolean  @default(true)
+  noindex           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@index([storeId, isPublished])
+  @@index([categoryId])
+}
+
+model ContentPage {
+  id                String   @id @default(cuid())
+  storeId           String
+  slug              String
+  // One of: GUIDE | COMPARISON | FAQ | LANDING | POLICY (enum in app code)
+  type              String
+  title             String
+  excerpt           String
+  body              String
+  seoTitle          String
+  seoDescription    String
+  heroImageUrl      String?
+  // JSON-encoded string[] of Product ids
+  relatedProductIds String   @default("[]")
+  isPublished       Boolean  @default(true)
+  noindex           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@index([storeId, type])
+}
+
+model Collection {
+  id             String @id @default(cuid())
+  storeId        String
+  slug           String
+  title          String
+  description    String
+  // JSON-encoded string[] of Product ids
+  productIds     String @default("[]")
+  seoTitle       String
+  seoDescription String
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+}
+
+model CartEvent {
+  id        String   @id @default(cuid())
+  storeId   String
+  sessionId String
+  eventName String
+  // JSON-encoded payload
+  payload   String   @default("{}")
+  createdAt DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, eventName])
+}
+
+model NewsletterSubscriber {
+  id          String   @id @default(cuid())
+  storeId     String
+  email       String
+  source      String
+  // JSON-encoded preferences object
+  preferences String?
+  createdAt   DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, email])
+}
+
+model Experiment {
+  id       String  @id @default(cuid())
+  storeId  String
+  key      String
+  name     String
+  // JSON-encoded variant config
+  variantA String  @default("{}")
+  // JSON-encoded variant config
+  variantB String  @default("{}")
+  isActive Boolean @default(false)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, key])
+}
+
+model Supplier {
+  id                  String  @id @default(cuid())
+  name                String  @unique
+  type                String
+  apiBaseUrl          String?
+  reliabilityScore    Float   @default(0.8)
+  averageShippingDays Int     @default(10)
+  notes               String?
+}

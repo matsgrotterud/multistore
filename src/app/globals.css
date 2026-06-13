@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Defaults; each store layout overrides these via inline style. */
+  --color-primary: #1d4ed8;
+  --color-primary-rgb: 29 78 216;
+  --color-primary-soft: rgba(29, 78, 216, 0.08);
+  --color-secondary: #1e293b;
+  --color-secondary-rgb: 30 41 59;
+  --color-accent: #f59e0b;
+  --color-accent-rgb: 245 158 11;
+  --color-background: #f8fafc;
+  --color-background-rgb: 248 250 252;
+  --color-text: #0f172a;
+  --color-text-rgb: 15 23 42;
+  --radius: 0.75rem;
+  --font-heading: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-ink font-body antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading;
+  }
+
+  /* Visible focus for keyboard users, on-brand per store. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-theme bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-theme border border-ink/15 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-primary hover:text-primary disabled:opacity-50;
+  }
+
+  .card {
+    @apply rounded-theme-lg border border-ink/10 bg-white shadow-sm;
+  }
+
+  .input {
+    @apply w-full rounded-theme border border-ink/20 bg-white px-4 py-2.5 text-sm text-ink placeholder:text-ink/40 focus:border-primary;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink/80;
+  }
+
+  .prose-guide {
+    @apply text-base leading-7 text-ink/90;
+  }
+
+  .prose-guide h2 {
+    @apply mt-10 scroll-mt-24 text-2xl font-bold text-ink;
+  }
+
+  .prose-guide h3 {
+    @apply mt-6 text-lg font-semibold text-ink;
+  }
+
+  .prose-guide p {
+    @apply mt-4;
+  }
+
+  .prose-guide ul {
+    @apply mt-4 list-disc space-y-1.5 pl-6;
+  }
+
+  .prose-guide strong {
+    @apply font-semibold text-ink;
+  }
+}
