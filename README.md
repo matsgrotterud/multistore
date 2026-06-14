@@ -26,6 +26,9 @@ The app works locally with `MEDIA_STORAGE_PROVIDER=local`, `MOCK_CHECKOUT=true` 
 | Admin | `ADMIN_PASSWORD` |
 | Cron protection | `CRON_SECRET` |
 | Runtime object storage | `BLOB_READ_WRITE_TOKEN`, `MEDIA_STORAGE_PROVIDER=vercel-blob` |
+| Stripe checkout | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_CAPTURE_MODE=manual` |
+| CJdropshipping | `CJ_ENABLED`, `CJ_API_KEY`, optional `CJ_ACCESS_TOKEN`/`CJ_REFRESH_TOKEN`; order API also needs `CJ_ORDER_API_ENABLED`, `CJ_ORDER_PAY_TYPE`, `CJ_LOGISTIC_NAME`, `CJ_FROM_COUNTRY_CODE` |
+| Doba | `DOBA_ENABLED`, `DOBA_ACCESS_KEY`, `DOBA_APP_KEY`, `DOBA_APP_SECRET` |
 | eBay Browse API | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, optional `EBAY_EPN_CAMPAIGN_ID` |
 | AliExpress affiliate/open platform | `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID` |
 | AI copy later | `OPENAI_API_KEY`, `AI_PROVIDER` |
@@ -71,6 +74,8 @@ Current providers:
 | Provider | Status |
 | --- | --- |
 | `mock` | Functional local discovery/media ingestion |
+| `cj` | Official API token/search/detail/media scaffold; order creation is gated behind explicit CJ order env and remains pending unless CJ pay type confirms fulfillment |
+| `doba` | Credential-aware scaffold; product/order endpoints stay disabled until the Doba API contract is confirmed |
 | `ebay` | Official Browse API search/details when OAuth env vars exist; affiliate mode by default |
 | `aliexpress` | Signing scaffold plus fixture mode; no checkout unless explicitly enabled later |
 | `temu`, `amazon`, `wish`, `alibaba` | Health/capability scaffolds; no checkout claims |
@@ -122,7 +127,9 @@ Products can be `DROPSHIP`, `AFFILIATE`, `MANUAL` or `MOCK`.
 
 Automatic supplier ordering must only be enabled when the provider has an approved checkout/order API. Otherwise the product stays affiliate/manual/mock and should not pretend automatic fulfillment exists.
 
-Checkout is still a local mock payment flow. The schema now includes `Customer`, `Order`, `OrderItem` and `SupplierOrder` for the next order-routing phase.
+Stripe PaymentIntent checkout is available when `MOCK_CHECKOUT=false` and Stripe keys exist. Use `PAYMENT_CAPTURE_MODE=manual` for dropship mode: the app authorizes payment first, routes the order to an approved provider, and only captures when fulfillment is confirmed. If a provider returns pending or errors, the uncaptured PaymentIntent is left authorized or cancelled instead of pretending fulfillment succeeded.
+
+Mock checkout remains available for local development with `MOCK_CHECKOUT=true`.
 
 ## Quality Gates
 
@@ -154,4 +161,3 @@ A product needs source info, shipping estimate, acceptable margin, enough suppli
 ## Launching Many Stores Safely
 
 Use preview/noindex for generated stores, configure providers per store, import candidates into review, publish only products that pass quality gates, and keep merchant feeds limited to live fulfillable products with stored images. Scale by adding StoreSupplierSettings and catalog jobs, not by copying apps.
-

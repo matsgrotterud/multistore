@@ -105,12 +105,10 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 
   const stripe = getStripeClient();
   const paymentIntent = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
+  const captureMode = paymentCaptureMode();
+  const expectedStatus = captureMode === "manual" ? "requires_capture" : "succeeded";
 
-  if (
-    paymentIntent.status !== "requires_capture" &&
-    paymentIntent.status !== "succeeded" &&
-    paymentIntent.status !== "processing"
-  ) {
+  if (paymentIntent.status !== expectedStatus) {
     return NextResponse.json(
       { error: `Payment not authorized yet (status: ${paymentIntent.status})` },
       { status: 400 }
@@ -119,7 +117,10 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { paymentStatus: "AUTHORIZED", status: "CONFIRMED" },
+    data: {
+      paymentStatus: captureMode === "manual" ? "AUTHORIZED" : "CAPTURED",
+      status: "CONFIRMED",
+    },
   });
 
   const routed = await routeOrder(order.id);

@@ -1,6 +1,8 @@
+import { requireAdmin } from "@/lib/admin/auth";
 import { getAdminProviderDashboard } from "@/lib/admin/commerce-dashboard";
 
 export default async function AdminProvidersPage() {
+  await requireAdmin();
   const providers = await getAdminProviderDashboard();
 
   return (

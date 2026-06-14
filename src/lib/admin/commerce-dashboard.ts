@@ -33,12 +33,12 @@ export async function getAdminProviderDashboard(): Promise<AdminProviderRow[]> {
     const lastRun = syncRuns.find((run) => run.providerKey === provider.key);
 
     let orderApiStatus = "Not supported";
-    if (provider.capabilities.checkout && provider.createDropshipOrder) {
+    if (health.capabilities.checkout && provider.createDropshipOrder) {
       orderApiStatus = health.status === "OK" ? "Ready" : "Configured but unhealthy";
     } else if (provider.key === "cj") {
       orderApiStatus =
         process.env.CJ_ORDER_API_ENABLED === "true"
-          ? "Enabled — verify CJ contract"
+          ? "Enabled flag set, missing health/config"
           : "Disabled until CJ_ORDER_API_ENABLED=true";
     } else if (provider.key === "doba") {
       orderApiStatus = "Scaffold only";

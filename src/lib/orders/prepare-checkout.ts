@@ -3,10 +3,10 @@ import { MARGIN_SAFE_THRESHOLD, calculateGrossMargin } from "@/lib/monetization/
 import { round2 } from "@/lib/pricing/calculate-price";
 import type {
   CheckoutCustomerInput,
-  CheckoutLineInput,
   FulfillmentMode,
   PreparedCheckout,
 } from "@/lib/orders/types";
+import { getCommerceProvider } from "@/lib/suppliers/providers/registry";
 import { checkoutSchema } from "@/lib/validation/schemas";
 
 function shippingCostFor(subtotal: number): number {
@@ -84,6 +84,32 @@ export async function prepareCheckout(input: unknown): Promise<
         ok: false,
         message: `"${product.title}" is not available for checkout at this time.`,
       };
+    }
+    if (fulfillmentMode === "DROPSHIP") {
+      if (!product.externalId) {
+        return {
+          ok: false,
+          message: `"${product.title}" is missing supplier fulfillment data.`,
+        };
+      }
+
+      const providerKey = product.providerKey ?? "mock";
+      let provider;
+      try {
+        provider = getCommerceProvider(providerKey);
+      } catch {
+        return {
+          ok: false,
+          message: `"${product.title}" uses an unknown fulfillment provider.`,
+        };
+      }
+
+      if (!provider.capabilities.checkout || !provider.createDropshipOrder) {
+        return {
+          ok: false,
+          message: `"${product.title}" cannot be sold through checkout until ${provider.name} checkout is enabled.`,
+        };
+      }
     }
 
     subtotal += product.price * item.quantity;

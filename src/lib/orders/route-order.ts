@@ -41,10 +41,15 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
     };
   }
 
-  if (order.status === "SUPPLIER_ORDERED" || order.status === "ERROR" || order.status === "CANCELLED") {
+  if (
+    order.status === "SUPPLIER_ORDERED" ||
+    order.status === "FULFILLMENT_PENDING" ||
+    order.status === "ERROR" ||
+    order.status === "CANCELLED"
+  ) {
     const supplierOrders = await prisma.supplierOrder.count({ where: { orderId: order.id } });
     return {
-      ok: order.status === "SUPPLIER_ORDERED",
+      ok: order.status === "SUPPLIER_ORDERED" || order.status === "FULFILLMENT_PENDING",
       orderId: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
@@ -58,6 +63,7 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
   const shippingAddress = JSON.parse(order.shippingAddressJson) as Record<string, unknown>;
   const errors: string[] = [];
   let supplierOrdersCreated = 0;
+  let pendingSupplierOrders = 0;
 
   for (const item of order.items) {
     if (item.fulfillmentMode === "AFFILIATE") {
@@ -153,6 +159,7 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
         },
       });
       supplierOrdersCreated += 1;
+      if (result.status === "PENDING") pendingSupplierOrders += 1;
     } catch (error) {
       const message =
         error instanceof UnsupportedCapabilityError
@@ -181,7 +188,12 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
       where: { id: order.id },
       data: {
         status: "ERROR",
-        paymentStatus: order.stripePaymentIntentId ? "CANCELLED" : "FAILED",
+        paymentStatus:
+          order.stripePaymentIntentId && captureMode === "manual"
+            ? "CANCELLED"
+            : order.paymentStatus === "CAPTURED"
+              ? "CAPTURED"
+              : "FAILED",
         fulfillmentStatus: "ERROR",
         paymentError: errors.join("; "),
       },
@@ -195,6 +207,34 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,
       error: errors.join("; "),
+      supplierOrders: supplierOrdersCreated,
+    };
+  }
+
+  if (pendingSupplierOrders > 0) {
+    const updated = await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status: "FULFILLMENT_PENDING",
+        paymentStatus:
+          order.stripePaymentIntentId && captureMode === "manual"
+            ? "AUTHORIZED"
+            : order.stripePaymentIntentId
+              ? "CAPTURED"
+              : order.paymentStatus,
+        fulfillmentStatus: "PENDING",
+        paymentError:
+          "Supplier order was created but still requires provider confirmation before capture.",
+      },
+    });
+
+    return {
+      ok: true,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: updated.status,
+      paymentStatus: updated.paymentStatus,
+      fulfillmentStatus: updated.fulfillmentStatus,
       supplierOrders: supplierOrdersCreated,
     };
   }

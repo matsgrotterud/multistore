@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { requireAdmin } from "@/lib/admin/auth";
 import { getAdminOrders } from "@/lib/admin/commerce-dashboard";
 
 export default async function AdminOrdersPage() {
+  await requireAdmin();
   const orders = await getAdminOrders(100);
 
   return (

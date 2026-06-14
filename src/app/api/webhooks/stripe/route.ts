@@ -41,6 +41,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await routeOrder(orderId);
   }
 
+  if (event.type === "payment_intent.succeeded") {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const orderId = paymentIntent.metadata.orderId;
+    if (!orderId) {
+      return NextResponse.json({ received: true, skipped: "no orderId metadata" });
+    }
+
+    await prisma.order.updateMany({
+      where: {
+        id: orderId,
+        status: { notIn: ["SUPPLIER_ORDERED", "FULFILLMENT_PENDING", "ERROR", "CANCELLED"] },
+      },
+      data: { paymentStatus: "CAPTURED", status: "CONFIRMED" },
+    });
+
+    await routeOrder(orderId);
+  }
+
   if (event.type === "payment_intent.payment_failed") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const orderId = paymentIntent.metadata.orderId;

@@ -169,9 +169,30 @@ export function toClientProduct(product: Product): ClientProduct {
     fulfillmentMode: product.fulfillmentMode,
     affiliateUrl: product.affiliateUrl,
     providerKey: product.providerKey,
-    checkoutAvailable:
-      product.fulfillmentMode !== "AFFILIATE" &&
-      (product.fulfillmentMode !== "MANUAL" ||
-        process.env.MANUAL_FULFILLMENT_ENABLED === "true"),
+    checkoutAvailable: checkoutAvailableForProduct(product),
   };
+}
+
+function checkoutAvailableForProduct(product: Product): boolean {
+  if (product.fulfillmentMode === "AFFILIATE") return false;
+  if (product.fulfillmentMode === "MOCK") return true;
+  if (product.fulfillmentMode === "MANUAL") {
+    return process.env.MANUAL_FULFILLMENT_ENABLED === "true";
+  }
+  if (product.fulfillmentMode !== "DROPSHIP") return false;
+  if (!product.externalId) return false;
+
+  switch (product.providerKey) {
+    case "cj":
+      return (
+        process.env.CJ_ENABLED === "true" &&
+        process.env.CJ_ORDER_API_ENABLED === "true" &&
+        Boolean(process.env.CJ_LOGISTIC_NAME) &&
+        Boolean(process.env.CJ_FROM_COUNTRY_CODE)
+      );
+    case "mock":
+      return true;
+    default:
+      return false;
+  }
 }

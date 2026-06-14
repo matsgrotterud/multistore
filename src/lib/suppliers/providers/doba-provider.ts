@@ -3,8 +3,6 @@ import {
   type CommerceProvider,
   type CreateDropshipOrderInput,
   type CreateSupplierOrderResult,
-  type ProductDetailsInput,
-  type ProductMediaInput,
   type ProductSearchInput,
   type ProductSearchResult,
   type ProviderCapabilities,
@@ -86,11 +84,11 @@ export class DobaProvider implements CommerceProvider {
     return [];
   }
 
-  async getProductDetails(input: ProductDetailsInput): Promise<ProductSearchResult> {
+  async getProductDetails(): Promise<ProductSearchResult> {
     throw new UnsupportedCapabilityError(this.key, "details");
   }
 
-  async getProductMedia(_input: ProductMediaInput): Promise<SupplierMedia[]> {
+  async getProductMedia(): Promise<SupplierMedia[]> {
     return [];
   }
 
