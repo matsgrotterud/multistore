@@ -57,6 +57,11 @@ export const seedProductSchema = z.object({
   stockStatus: stockStatusSchema,
   supplierName: z.string().min(1),
   supplierProductId: z.string().min(1),
+  supplierSource: z
+    .enum(["aliexpress", "temu", "ebay", "wish", "alibaba"])
+    .optional(),
+  supplierUrl: z.string().url().optional(),
+  supplierSearchQuery: z.string().min(3).optional(),
   shippingDaysMin: z.number().int().min(1),
   shippingDaysMax: z.number().int().min(1),
   countryOfOrigin: z.string().nullable().optional(),

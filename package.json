@@ -13,6 +13,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:refresh-images": "tsx scripts/refresh-product-images.ts",
+    "sync:supplier-images": "tsx scripts/sync-supplier-images.ts",
     "catalog:download": "tsx scripts/download-catalog-images.ts",
     "catalog:sync": "npm run catalog:download && npm run db:refresh-images",
     "prisma:studio": "prisma studio"

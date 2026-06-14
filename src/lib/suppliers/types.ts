@@ -13,8 +13,12 @@ export interface RawSupplierProduct {
   title: string;
   description: string;
   imageUrl: string;
-  /** Full supplier gallery when scraped from Ali/Temu/eBay (future). */
+  /** Full supplier gallery when scraped from Ali/Temu/eBay. */
   galleryUrls?: string[];
+  /** Direct listing URL for image re-sync cron. */
+  supplierUrl?: string;
+  supplierSource?: "aliexpress" | "temu" | "ebay" | "wish" | "alibaba";
+  supplierSearchQuery?: string;
   /** Unit cost charged by the supplier, in USD. */
   costUsd: number;
   /** Supplier's shipping charge to typical destination, in USD. */
@@ -33,6 +37,10 @@ export interface NormalizedSupplierProduct {
   title: string;
   description: string;
   imageUrl: string;
+  galleryUrls?: string[];
+  supplierUrl?: string;
+  supplierSource?: "aliexpress" | "temu" | "ebay" | "wish" | "alibaba";
+  supplierSearchQuery?: string;
   cost: number;
   shippingCost: number;
   shippingDaysMin: number;

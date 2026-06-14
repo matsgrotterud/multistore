@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import type { ScrapedSupplierImage } from "@/lib/images/types";
 import { resolveProductImages } from "@/lib/images/resolve-product-images";
 
 type DbClient = Pick<PrismaClient, "product" | "productImage" | "store">;
@@ -18,6 +19,7 @@ export async function syncProductImages(
     niche: string;
     brand?: string;
     keywords?: string[];
+    scrapedImages?: ScrapedSupplierImage[];
   }
 ): Promise<{ primaryUrl: string; galleryCount: number }> {
   const resolved = resolveProductImages(options);

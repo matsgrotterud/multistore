@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { syncProductImages } from "@/lib/images/sync-product-images";
+import { syncSupplierImagesForProduct } from "@/lib/suppliers/sync-supplier-images";
+import type { ScrapedSupplierImage } from "@/lib/images/types";
 import { calculatePrice } from "@/lib/pricing/calculate-price";
 import { computeProductScore } from "@/lib/products/product-score";
 import { mockSupplier } from "@/lib/suppliers/mock-supplier";
@@ -110,6 +112,9 @@ export async function importProductsForStore(options: {
         stockStatus: normalized.stockStatus,
         supplierName: normalized.supplierName,
         supplierProductId: normalized.supplierProductId,
+        supplierSource: normalized.supplierSource ?? "aliexpress",
+        supplierUrl: normalized.supplierUrl ?? null,
+        supplierSearchQuery: normalized.supplierSearchQuery ?? normalized.title,
         shippingDaysMin: normalized.shippingDaysMin,
         shippingDaysMax: normalized.shippingDaysMax,
         countryOfOrigin: normalized.countryOfOrigin,
@@ -124,15 +129,27 @@ export async function importProductsForStore(options: {
       },
     });
 
-    await syncProductImages(prisma, product.id, {
-      title: normalized.title,
-      slug,
-      sku,
-      niche: store.niche,
-      brand: store.name,
-      keywords: normalized.keywords,
-      // Future: pass normalized.scrapedGallery from Ali/Temu/eBay adapters here.
-    });
+    const scrapedImages: ScrapedSupplierImage[] | undefined =
+      normalized.galleryUrls?.map((url, index) => ({
+        url,
+        source: normalized.supplierSource ?? "aliexpress",
+        supplierProductId: normalized.supplierProductId,
+        sortOrder: index,
+      }));
+
+    if (scrapedImages?.length) {
+      await syncProductImages(prisma, product.id, {
+        title: normalized.title,
+        slug,
+        sku,
+        niche: store.niche,
+        brand: store.name,
+        keywords: normalized.keywords,
+        scrapedImages,
+      });
+    } else {
+      await syncSupplierImagesForProduct(prisma, product.id);
+    }
 
     result.imported += 1;
     result.slugs.push(slug);

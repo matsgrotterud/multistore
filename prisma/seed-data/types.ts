@@ -28,6 +28,12 @@ export interface SeedProductInput {
   stockStatus: StockStatus;
   supplierName: string;
   supplierProductId: string;
+  /** Marketplace used for daily image sync cron. */
+  supplierSource?: "aliexpress" | "temu" | "ebay" | "wish" | "alibaba";
+  /** Direct listing URL when known. */
+  supplierUrl?: string;
+  /** Search query for finding the best-matching supplier listing. */
+  supplierSearchQuery?: string;
   shippingDaysMin: number;
   shippingDaysMax: number;
   countryOfOrigin?: string | null;

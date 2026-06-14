@@ -140,6 +140,12 @@ model Product {
   stockStatus       String   @default("IN_STOCK")
   supplierName      String
   supplierProductId String
+  // aliexpress | temu | ebay | wish | alibaba — used by the image sync cron.
+  supplierSource    String   @default("aliexpress")
+  // Direct listing URL when known; otherwise search uses supplierSearchQuery.
+  supplierUrl       String?
+  supplierSearchQuery String?
+  imagesSyncedAt    DateTime?
   shippingDaysMin   Int
   shippingDaysMax   Int
   countryOfOrigin   String?

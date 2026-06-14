@@ -92,24 +92,13 @@ function productImages(
   productSeed: SeedProductInput,
   storeNiche: string
 ): { imageUrl: string; imageAlt: string; gallery: Array<{ url: string; alt: string; sortOrder: number; isPrimary: boolean }> } {
-  const resolved = resolveProductImages({
-    title: productSeed.title,
-    subtitle: productSeed.subtitle,
-    slug: productSeed.slug,
-    sku: productSeed.sku,
-    niche: storeNiche,
-    brand: productSeed.brand,
-    keywords: productSeed.useCases,
-  });
+  const label = encodeURIComponent(productSeed.title.slice(0, 28));
+  const placeholder = `/api/placeholder?label=${label}&seed=${productSeed.slug}&niche=${encodeURIComponent(storeNiche)}`;
+  const alt = `${productSeed.title} — ${productSeed.subtitle}`;
   return {
-    imageUrl: resolved.primaryUrl,
-    imageAlt: resolved.primaryAlt,
-    gallery: resolved.galleryUrls.map((url, index) => ({
-      url,
-      alt: index === 0 ? resolved.primaryAlt : `${resolved.primaryAlt} — view ${index + 1}`,
-      sortOrder: index,
-      isPrimary: index === 0,
-    })),
+    imageUrl: placeholder,
+    imageAlt: alt,
+    gallery: [{ url: placeholder, alt, sortOrder: 0, isPrimary: true }],
   };
 }
 
@@ -246,6 +235,11 @@ async function seedStore(
           stockStatus: productSeed.stockStatus,
           supplierName: productSeed.supplierName,
           supplierProductId: productSeed.supplierProductId,
+          supplierSource: productSeed.supplierSource ?? "aliexpress",
+          supplierUrl: productSeed.supplierUrl ?? null,
+          supplierSearchQuery:
+            productSeed.supplierSearchQuery ??
+            `${productSeed.title} ${productSeed.subtitle}`.slice(0, 120),
           shippingDaysMin: productSeed.shippingDaysMin,
           shippingDaysMax: productSeed.shippingDaysMax,
           countryOfOrigin: productSeed.countryOfOrigin ?? null,

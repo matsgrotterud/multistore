@@ -9,7 +9,7 @@ export type ImageSourceKind = "curated" | "scraped" | "enhanced" | "generated";
 
 export interface ScrapedSupplierImage {
   url: string;
-  source: "aliexpress" | "temu" | "ebay" | "amazon" | "other";
+  source: "aliexpress" | "temu" | "ebay" | "amazon" | "wish" | "alibaba" | "other";
   supplierProductId: string;
   sortOrder?: number;
 }

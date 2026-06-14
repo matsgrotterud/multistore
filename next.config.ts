@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com", pathname: "/**" },
       { protocol: "https", hostname: "plus.unsplash.com", pathname: "/**" },
+      { protocol: "https", hostname: "*.aliexpress-media.com", pathname: "/**" },
+      { protocol: "https", hostname: "*.alicdn.com", pathname: "/**" },
+      { protocol: "https", hostname: "ae01.alicdn.com", pathname: "/**" },
+      { protocol: "https", hostname: "*.ebayimg.com", pathname: "/**" },
+      { protocol: "https", hostname: "img.kwcdn.com", pathname: "/**" },
+      { protocol: "https", hostname: "**.temu.com", pathname: "/**" },
     ],
     localPatterns: [{ pathname: "/uploads/**" }, { pathname: "/api/placeholder" }],
   },

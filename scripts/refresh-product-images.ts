@@ -1,36 +1,20 @@
 import { PrismaClient } from "@prisma/client";
-import { syncProductImages } from "../src/lib/images/sync-product-images";
-import { parseStringArray } from "../src/lib/utils/json";
+import { syncSupplierImagesForAllStores } from "../src/lib/suppliers/sync-supplier-images";
 
 /**
- * Refresh all product images to curated photographic URLs + gallery rows.
- * Safe to re-run — does not delete products or change copy.
- *
- *   npm run db:refresh-images
+ * @deprecated Use `npm run sync:supplier-images` — refreshes scraped supplier CDN URLs in DB.
  */
-
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
-  const products = await prisma.product.findMany({
-    include: { store: { select: { niche: true } } },
-  });
-
-  let updated = 0;
-  for (const product of products) {
-    await syncProductImages(prisma, product.id, {
-      title: product.title,
-      subtitle: product.subtitle,
-      slug: product.slug,
-      sku: product.sku,
-      niche: product.store.niche,
-      brand: product.brand,
-      keywords: parseStringArray(product.useCases),
-    });
-    updated += 1;
+  console.warn("db:refresh-images is deprecated. Running sync:supplier-images instead...");
+  const delayMs = Number(process.env.SUPPLIER_SYNC_DELAY_MS ?? "1500");
+  const batches = await syncSupplierImagesForAllStores(prisma, { delayMs });
+  let total = 0;
+  for (const batch of batches) {
+    total += batch.results.filter((result) => result.imageCount > 0).length;
   }
-
-  console.log(`Refreshed images for ${updated} products.`);
+  console.log(`Updated ${total} products with scraped supplier images.`);
 }
 
 main()
