@@ -127,6 +127,7 @@ async function seedStore(
       returnPolicySummary: info.returnPolicySummary,
       privacyPolicy: policies.privacyPolicy,
       termsOfSale: policies.termsOfSale,
+      launchStatus: "LIVE",
       isActive: true,
       theme: { create: seed.theme },
       settings: {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin/auth";
+import { getStorePreviewUrl, launchStatusLabel } from "@/lib/stores/preview-url";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,8 @@ export default async function AdminStoresPage() {
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 font-medium">Store</th>
-              <th className="px-4 py-3 font-medium">Primary domain</th>
+              <th className="px-4 py-3 font-medium">Launch</th>
+              <th className="px-4 py-3 font-medium">Domain</th>
               <th className="px-4 py-3 font-medium">Niche</th>
               <th className="px-4 py-3 font-medium">Categories</th>
               <th className="px-4 py-3 font-medium">Products</th>
@@ -52,7 +54,25 @@ export default async function AdminStoresPage() {
                   <p className="font-semibold">{store.name}</p>
                   <p className="text-xs text-slate-500">{store.slug}</p>
                 </td>
-                <td className="px-4 py-3 font-mono text-xs">{store.primaryDomain}</td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      store.launchStatus === "LIVE"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : store.launchStatus === "DRAFT"
+                          ? "bg-slate-200 text-slate-600"
+                          : "bg-amber-100 text-amber-900"
+                    }`}
+                  >
+                    {launchStatusLabel(store.launchStatus)}
+                  </span>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs">
+                  {store.plannedDomain ?? store.primaryDomain}
+                  {store.plannedDomain && store.launchStatus !== "LIVE" && (
+                    <span className="mt-0.5 block text-[10px] text-slate-400">not connected</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">{store.niche}</td>
                 <td className="px-4 py-3">{store._count.categories}</td>
                 <td className="px-4 py-3">{store._count.products}</td>
@@ -83,8 +103,11 @@ export default async function AdminStoresPage() {
                     >
                       Products
                     </Link>
-                    <Link href={`/s/${store.slug}`} className="text-slate-500 underline">
-                      Open
+                    <Link
+                      href={getStorePreviewUrl(store.slug)}
+                      className="text-slate-500 underline"
+                    >
+                      Preview
                     </Link>
                   </div>
                 </td>

@@ -29,14 +29,34 @@ export function getAiProvider(): AiProvider {
 export const storeBlueprintInputSchema = z.object({
   domain: z
     .string()
-    .min(4, "Domain is required")
-    .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i, "Enter a bare domain like 'example.com'"),
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
   niche: z.string().min(3, "Describe the niche, e.g. 'espresso gear'"),
   audience: z.string().min(3, "Describe the audience, e.g. 'home baristas'"),
-  productKeywords: z.array(z.string().min(2)).max(10).default([]),
+  productKeywords: z
+    .union([
+      z.array(z.string().min(2)).max(10),
+      z.string().transform((value) =>
+        value
+          .split(",")
+          .map((keyword) => keyword.trim())
+          .filter(Boolean)
+          .slice(0, 10)
+      ),
+    ])
+    .default([]),
   brandVoice: z.string().min(3).default("clear, honest, practical"),
   locale: z.string().min(2).default("en-US"),
   country: z.string().min(2).default("United States"),
+}).superRefine((data, ctx) => {
+  if (data.domain && !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(data.domain)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Enter a bare domain like 'example.com' or leave empty for test-only preview",
+      path: ["domain"],
+    });
+  }
 });
 
 export type ValidatedBlueprintInput = z.infer<typeof storeBlueprintInputSchema>;

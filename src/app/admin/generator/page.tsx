@@ -8,13 +8,11 @@ export default async function AdminGeneratorPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Store &amp; content generator</h1>
-      <p className="mt-1 max-w-2xl text-sm text-slate-500">
-        Generates a complete store blueprint or product copy using the
-        deterministic mock AI provider (no API key needed). Output is checked
-        by the content guardrails and returned as JSON you can copy — wiring
-        it directly into the database is the next planned step, and the
-        output shape already matches the seed format.
+      <h1 className="text-2xl font-bold">Store factory</h1>
+      <p className="mt-1 max-w-3xl text-sm text-slate-500">
+        Describe a niche → generate a blueprint → create a preview store with categories, products,
+        FAQ and a buying guide. No real domain required until you are ready to go Live and connect
+        DNS.
       </p>
       <div className="mt-8">
         <GeneratorForms />

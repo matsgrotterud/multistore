@@ -39,6 +39,10 @@ model Store {
   returnPolicySummary       String
   privacyPolicy             String
   termsOfSale               String
+  // DRAFT | PREVIEW | LIVE — PREVIEW stores are noindexed until a real domain is connected.
+  launchStatus              String   @default("PREVIEW")
+  // Domain the merchant plans to use (e.g. jaaaws.com). Storefront preview works via /s/[slug] until LIVE.
+  plannedDomain             String?
   isActive                  Boolean  @default(true)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt

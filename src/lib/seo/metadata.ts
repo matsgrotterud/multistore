@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { Category, ContentPage, Product, Store } from "@prisma/client";
 import { absoluteUrl, canonicalUrl, getCanonicalBaseUrl } from "@/lib/seo/canonical";
+import { isLiveStore } from "@/lib/stores/preview-url";
 
 /**
  * Centralized metadata builders. Every storefront page calls one of these so
@@ -31,13 +32,14 @@ export function buildMetadata({
 }: BuildArgs): Metadata {
   const canonical = canonicalUrl(store, path);
   const image = absoluteUrl(store, ogImage || FALLBACK_OG_IMAGE);
+  const shouldNoindex = noindex || !isLiveStore(store.launchStatus);
 
   return {
     title,
     description,
     metadataBase: new URL(getCanonicalBaseUrl(store)),
     alternates: { canonical },
-    robots: noindex ? { index: false, follow: true } : { index: true, follow: true },
+    robots: shouldNoindex ? { index: false, follow: true } : { index: true, follow: true },
     openGraph: {
       title,
       description,

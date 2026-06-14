@@ -54,7 +54,8 @@ export class MockAiProvider implements AiProvider {
   async generateStoreBlueprint(
     input: StoreBlueprintInput
   ): Promise<StoreBlueprint> {
-    const seed = hash(input.domain + input.niche);
+    const domainKey = input.domain ?? input.niche;
+    const seed = hash(domainKey + input.niche);
     const nicheTitle = titleCase(input.niche);
     const brandName = `${nicheTitle.split(" ")[0]} ${["Haven", "Hub", "Studio", "Works", "Atelier", "Supply"][seed % 6]}`;
     const keywords = input.productKeywords.length > 0 ? input.productKeywords : [input.niche];
@@ -108,8 +109,14 @@ export class MockAiProvider implements AiProvider {
       ],
       productImportQueries: keywords.map((keyword) => `${keyword} best sellers`),
       themeColors: PALETTES[seed % PALETTES.length],
-      trustCopy: `Every product is checked against our quality checklist before listing. Delivery typically takes a stated realistic window, returns are accepted per our published policy, and support replies within one business day.`,
-      shippingDisclosure: `Orders are fulfilled by partner suppliers and typically arrive within a realistic stated window for ${input.country}. We never claim local stock we do not hold.`,
+      trustCopy: [
+        `Every product at ${brandName} is reviewed against our quality checklist before it appears in the catalog.`,
+        `We compare specs, realistic shipping windows, return terms and margin sustainability — not hype.`,
+        `Orders ship from vetted partner suppliers; delivery estimates on each product page reflect typical transit, not marketing promises.`,
+        `Support replies within one business day at the email on our policies pages.`,
+        `We do not publish star ratings until verified customer reviews exist.`,
+      ].join(" "),
+      shippingDisclosure: `Orders are fulfilled by partner suppliers and typically arrive within a realistic window for ${input.country}. Fulfillment is remote — we publish honest delivery estimates instead of implying same-day dispatch from a warehouse we do not operate.`,
       monetizationIdeas: [
         "Bundle complementary accessories at a small discount",
         "Subscription for consumable refills where applicable",

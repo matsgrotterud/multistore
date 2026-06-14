@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin/auth";
 import { parseStoreSettings } from "@/lib/settings/store-settings";
+import { getStorePreviewUrl } from "@/lib/stores/preview-url";
+import { GoLiveButton } from "@/components/admin/GoLiveButton";
 import { StoreEditForm } from "@/components/admin/StoreEditForm";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +62,24 @@ export default async function StoreEditPage({
           >
             View storefront
           </Link>
+        </div>
+      </div>
+
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <GoLiveButton slug={store.slug} launchStatus={store.launchStatus} />
+        <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+          <p className="font-semibold text-slate-900">Preview URL</p>
+          <a
+            href={getStorePreviewUrl(store.slug)}
+            className="mt-1 block break-all font-mono text-blue-700 underline"
+          >
+            {getStorePreviewUrl(store.slug)}
+          </a>
+          {store.plannedDomain && (
+            <p className="mt-2">
+              Planned domain: <span className="font-mono">{store.plannedDomain}</span>
+            </p>
+          )}
         </div>
       </div>
 

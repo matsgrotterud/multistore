@@ -89,7 +89,7 @@ export function checkContent(input: ContentCheckInput): GuardrailReport {
   }
 
   for (const pattern of LOCAL_STOCK_PATTERNS) {
-    if (pattern.test(text)) {
+    if (pattern.test(text) && !isNegatedLocalStockMention(text)) {
       flags.push({
         rule: "no-implied-local-stock",
         severity: "BLOCK",
@@ -154,6 +154,13 @@ export function checkContent(input: ContentCheckInput): GuardrailReport {
   );
 
   return { passed: !hasBlocker, recommendNoindex, flags };
+}
+
+/** Allow honest disclosures like "we do not claim local stock". */
+function isNegatedLocalStockMention(text: string): boolean {
+  return /\b(?:never|not|don't|do not|without|instead of)\b[^.]{0,60}\blocal stock\b/i.test(
+    text
+  );
 }
 
 /** Cheap shingle-based similarity for duplicate-ish detection. */

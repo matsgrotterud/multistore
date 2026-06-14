@@ -6,7 +6,8 @@
  */
 
 export interface StoreBlueprintInput {
-  domain: string;
+  /** Planned production domain. Optional — preview works without one. */
+  domain?: string;
   niche: string;
   audience: string;
   productKeywords: string[];
