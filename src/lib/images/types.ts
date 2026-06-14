@@ -1,8 +1,8 @@
 /**
  * Product image pipeline contracts.
  *
- * Today: curated photographic URLs (Unsplash) keyed by niche keywords.
- * Next: scrape AliExpress / Temu / eBay → enhance → generate lifestyle hero shots.
+ * Legacy seeded products may still use curated catalog images.
+ * New supplier imports should use provider-supplied media via ProductMediaAsset.
  */
 
 export type ImageSourceKind = "curated" | "scraped" | "enhanced" | "generated";
@@ -19,7 +19,7 @@ export interface ResolvedProductImages {
   primaryAlt: string;
   galleryUrls: string[];
   sourceKind: ImageSourceKind;
-  /** When scraped/enhanced, keep the original for audit/compliance. */
+  /** When provider/enhanced, keep the original for audit/compliance. */
   sourceUrls?: string[];
 }
 
@@ -31,7 +31,7 @@ export interface ResolveProductImagesInput {
   niche: string;
   brand?: string;
   keywords?: string[];
-  /** Raw URLs from a supplier scrape (future). Takes precedence when provided. */
+  /** Raw URLs from an authorized supplier/provider source. */
   scrapedImages?: ScrapedSupplierImage[];
 }
 

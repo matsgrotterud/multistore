@@ -12,8 +12,8 @@ const nextConfig: NextConfig = {
   // keeps the path valid if/when imagery migrates to next/image).
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "images.unsplash.com", pathname: "/**" },
-      { protocol: "https", hostname: "plus.unsplash.com", pathname: "/**" },
+      { protocol: "https", hostname: "blob.vercel-storage.com", pathname: "/**" },
+      { protocol: "https", hostname: "*.public.blob.vercel-storage.com", pathname: "/**" },
       { protocol: "https", hostname: "*.aliexpress-media.com", pathname: "/**" },
       { protocol: "https", hostname: "*.alicdn.com", pathname: "/**" },
       { protocol: "https", hostname: "ae01.alicdn.com", pathname: "/**" },

@@ -1,18 +1,10 @@
 # Multi-Store Dropship Factory
 
-One Next.js codebase that serves **many niche ecommerce storefronts**, each on its own domain with its own brand, theme, catalog, content, SEO strategy and Merchant feed. Five complete demo stores ship in the seed:
+One Next.js codebase for many niche storefronts. The app resolves a tenant from host/query/cookie, renders `/s/[store]`, and keeps seeded demo stores, admin, product pages, category pages, guides, cart, checkout stub, SEO and Prisma in one platform.
 
-| Store | Slug | Example domain | Personality |
-| --- | --- | --- | --- |
-| Skyforge Drones | `drones` | dronestore.example | Technical, performance-oriented |
-| Bamboo Smile | `bamboo-toothbrushes` | bambussmil.example | Calm, sustainable, subscription-friendly |
-| UprightWorks | `ergonomic-office` | ergonomikontor.example | Professional, health-focused |
-| Fur & Friends | `pet-grooming` | pelspleie.example | Warm and friendly |
-| Ridgeline Supply | `hiking-gear` | turklar.example | Rugged and practical |
+The current direction is a commerce operating system for many premium niche stores: generated storefronts, provider-backed product discovery, durable media ingestion, candidate review, quality gates, catalog jobs and honest fulfillment modes.
 
-This is **not** 40 separate projects — it is one multi-tenant platform. The middleware resolves the store from the Host header and rewrites internally to `/s/[storeSlug]` while visitors see clean canonical URLs.
-
-## Local setup
+## Local Setup
 
 ```bash
 npm install
@@ -22,157 +14,144 @@ npm run db:seed
 npm run dev
 ```
 
-Then open:
+Open `/admin` with `ADMIN_PASSWORD`, or preview a store at `/s/drones`.
 
-- http://localhost:3000/?store=drones (or any other slug) — sets a store cookie and rewrites
-- http://localhost:3000/s/bamboo-toothbrushes — direct internal path
-- http://localhost:3000/admin — admin (password = `ADMIN_PASSWORD`, default `changeme`)
-- http://localhost:3000/api/feeds/google?store=hiking-gear — Merchant feed
-- http://localhost:3000/sitemap.xml and /robots.txt — per-host SEO endpoints
+## Required Credentials
 
-## Environment variables
+The app works locally with `MEDIA_STORAGE_PROVIDER=local`, `MOCK_CHECKOUT=true` and the `mock` provider. For production, get these first:
 
-Copy `.env.example` to `.env` (a working `.env` is included for local dev):
-
-| Variable | Purpose |
+| Need | Env vars |
 | --- | --- |
-| `DATABASE_URL` | `file:./dev.db` locally; a Postgres URL in production |
-| `ADMIN_PASSWORD` | Protects `/admin`. Change it. |
-| `NEXT_PUBLIC_DEFAULT_STORE` | Fallback store slug when no domain/cookie/query matches |
-| `MOCK_CHECKOUT` | `true` = simulated checkout; set `false` once a real provider is wired in |
+| Database | `DATABASE_URL`, `DIRECT_URL` |
+| Admin | `ADMIN_PASSWORD` |
+| Cron protection | `CRON_SECRET` |
+| Runtime object storage | `BLOB_READ_WRITE_TOKEN`, `MEDIA_STORAGE_PROVIDER=vercel-blob` |
+| eBay Browse API | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, optional `EBAY_EPN_CAMPAIGN_ID` |
+| AliExpress affiliate/open platform | `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID` |
+| AI copy later | `OPENAI_API_KEY`, `AI_PROVIDER` |
+
+Other provider env vars are scaffolded in `.env.example` for Temu, Amazon, Wish and Alibaba. They stay `NOT_CONFIGURED` until authorized credentials are present.
 
 ## Architecture
 
-```
-src/
-  middleware.ts             Host/query/cookie -> /s/[storeSlug] rewrite (edge)
-  config/domain-map.ts      hostname -> store slug map (edge-safe, ~40 slots)
-  app/
-    s/[store]/...           All storefront routes (home, c/, p/, guides/, compare,
-                            quiz, cart, checkout, search, policies/)
-    admin/...               Dashboard, stores (+ edit), products (+ edit),
-                            content/import/experiments/seo-audit, generator (+ login)
-    api/feeds/google        Google Merchant Center feed (XML)
-    api/track               First-party analytics sink -> CartEvent table
-    api/placeholder         Deterministic branded SVG images (offline-friendly)
-    robots.ts, sitemap.ts   Per-host, store-scoped
-  lib/
-    tenant/                 DB-backed tenant resolution (sitemaps/feeds)
-    stores/queries.ts       Store-scoped data access layer (React cache)
-    seo/                    metadata, jsonld, canonical, sitemap builders
-    pricing/                Margin-safe price engine + currency formatting
-    products/product-score  0-100 commercial score (drives featuring/sorting)
-    suppliers/              SupplierAdapter interface + mock + import pipeline
-    payments/               PaymentProvider interface + mock (Stripe-ready)
-    ai/                     Blueprint/copy generation + content guardrails
-    monetization/           Margin, bundles, upsell/subscription insights (admin-only)
-    settings/               Per-store StoreSettings (Zod schema + defaults)
-    actions/admin-*.ts      Admin Server Actions (store + product edit, Zod)
-    analytics/              Event taxonomy + consent-gated client tracking
-    quiz/                   Per-niche quiz configs + recommendation scoring
-    cart/                   localStorage cart context (per store)
-  components/               25+ storefront components (server-first, client leaves)
-prisma/
-  schema.prisma             SQLite locally, Postgres-compatible
-  seed.ts + seed-data/      5 complete stores, validated with Zod
+Key runtime paths:
+
+```text
+src/app/s/[store]/...              Storefront routes
+src/app/admin/import               Candidate review/import UI
+src/app/api/cron/catalog-sync      Daily catalog jobs
+src/lib/suppliers/providers        Provider contracts and adapters
+src/lib/catalog                    Candidate service and quality gates
+src/lib/media                      Fetch/hash/ingest/sync media pipeline
+src/lib/storage                    Local/Vercel Blob storage providers
+src/lib/jobs                       Catalog queue and runner
+prisma/schema.prisma               Multi-tenant commerce schema
 ```
 
-### How multi-tenant routing works
+Product discovery flow:
 
-1. **Production**: a request to `dronestore.example/p/aero-s1-mini-4k` hits the middleware, which looks up the hostname in `src/config/domain-map.ts` and rewrites to `/s/drones/p/aero-s1-mini-4k`. The address bar keeps the clean URL.
-2. **Local dev**: `/?store=drones` (query param) or `/s/drones` (direct path) selects the tenant; a cookie (`msdf_store`) remembers it so subsequent clean URLs resolve correctly.
-3. **Canonical URLs** always point at the store's primary domain with clean paths — `/s/...` is never canonical, and robots.txt disallows it.
-4. All internal links are clean paths (`/p/...`, `/c/...`), so the same components work on every domain.
+```text
+StoreSupplierSettings/import query
+  -> CommerceProvider.searchProducts()
+  -> ProductCandidate upsert
+  -> scoreCandidate + quality gates
+  -> admin approve/reject
+  -> import as Product draft/noindex
+  -> ProductMediaAsset + ProductImage compatibility mirror
+```
 
-### Adding a new store/domain
+Supplier search never creates a live product directly. Imported products remain unpublished/noindex until a later quality review marks them ready.
 
-1. Generate a blueprint in `/admin/generator` (deterministic mock AI; output is guardrail-checked JSON matching the seed format).
-2. Add a seed module in `prisma/seed-data/` (copy an existing store) and register it in `prisma/seed.ts`; run `npm run db:seed`.
-3. Map the hostname in `src/config/domain-map.ts` (edge) — the Domain table covers server-side resolution automatically.
-4. Point DNS at the deployment. Done — same build serves the new tenant.
+## Provider Capability Model
 
-## Admin CMS
+Every provider exposes explicit capabilities: search, details, images, video, pricing, inventory, checkout, tracking, returns and affiliate links. Missing credentials return `NOT_CONFIGURED` health and do not crash catalog jobs.
 
-`/admin` is protected by `requireAdmin()` on every page (cookie-based; replace
-with real auth before public exposure). The sidebar covers Dashboard, Stores,
-Products, Content, Import, Experiments, SEO Audit and Generator.
+Current providers:
 
-- **Store editor** (`/admin/stores/[slug]/edit`): brand/identity, domains
-  (one per line; primary flagged automatically and protected from collisions),
-  support + shipping defaults, policies, **theme with a live preview**, and a
-  full **StoreSettings** form (SEO defaults, homepage layout, monetization
-  targets, marketing pixels, personalization weights, automation thresholds,
-  compliance disclosures). Settings persist as a JSON-encoded `StoreSettings`
-  row, validated and fully defaulted by `src/lib/settings/store-settings.ts`.
-- **Product editor** (`/admin/stores/[slug]/products/[slug]/edit`): every
-  Product field, including line/pipe editors for pros, cons, use cases, specs
-  (`Label | Value`) and FAQ (`Question | Answer`). On save, `marginPercent` and
-  `productScore` are **recomputed with the same libraries the seed uses**, and
-  publish/no-index are toggled inline.
-- **Product images**: upload (PNG/JPEG/WebP/GIF/AVIF ≤ 5 MB), reorder, set
-  primary, edit alt text, delete. Uploads `POST /api/admin/upload` (auth) and are
-  written to `public/uploads/<storeSlug>/` (swap `src/lib/uploads/save-upload.ts`
-  for S3/R2 in production). The **primary `ProductImage` is mirrored to
-  `Product.imageUrl/imageAlt`**, so product cards, JSON-LD and the Merchant feed
-  stay correct; the storefront gallery uses `ProductImage[]` and falls back to
-  `imageUrl`/placeholder when none are uploaded.
-- Server Actions (`src/lib/actions/admin-store.ts`, `admin-product.ts`) validate
-  with Zod, enforce store scoping (no cross-tenant category/domain leaks), and
-  `revalidatePath` the affected storefront so edits appear immediately.
-
-Content/Import/Experiments/SEO-audit are scaffolded screens; their
-implementations land in subsequent Phase 2 sessions (supplier import UI, A/B
-runtime, personalization, SEO audit + launch checklist).
-
-## SEO & structured data
-
-- `generateMetadata` on every page: title, description, canonical (store domain), Open Graph + Twitter cards with image fallback.
-- JSON-LD: Organization + WebSite (layout), Product + Offer + BreadcrumbList (product pages), ItemList (category/compare), Article (guides), FAQPage **only when the FAQ is visibly rendered**.
-- **Honesty rules enforced in code** (`src/lib/seo/jsonld.ts`, `src/lib/ai/content-guardrails.ts`): no AggregateRating without real rating data, no fake reviews, no fake scarcity, no implied local stock, availability mirrors real `stockStatus`.
-- Categories with fewer than 3 published products are noindexed and excluded from the sitemap; unpublished/noindex pages never appear in sitemap or feed.
-- Sitemap and robots are generated per Host — each domain only advertises its own URLs.
-
-## Supplier adapters
-
-`src/lib/suppliers/types.ts` defines the `SupplierAdapter` interface (`searchProducts`, `getProduct`, `normalizeProduct`, `estimateShipping`, `calculateLandedCost`). The mock adapter (`mock-supplier.ts`) runs offline; `import-products.ts` is the full pipeline: search → normalize → price (margin-safe) → score → upsert **unpublished** for review. Implement the interface against a real supplier API and pass it to `importProductsForStore` — nothing else changes.
-
-## Payment adapter
-
-Checkout (`src/lib/actions/checkout.ts`) re-prices every line item from the database, runs internal margin-safe warnings (logged, never shown to users), and calls `getPaymentProvider()` from `src/lib/payments/payment-provider.ts`. The mock provider simulates success while `MOCK_CHECKOUT=true`. A Stripe implementation sketch is included in the file — implement `PaymentProvider`, switch the factory, done.
-
-## Google Merchant feed
-
-`/api/feeds/google` emits RSS 2.0 XML with the `g:` namespace, resolved per host (or `?store=`). Only published products are included; GTIN is emitted when present (otherwise `identifier_exists=false`). **Before submitting to a real Merchant Center account**: product data, shipping settings, tax, return policy and business information must be accurate and verified — the route's comments spell this out. The feed is a structural starting point, not a compliance guarantee.
-
-## Analytics & consent
-
-First-party events (`page_view`, `product_view`, `add_to_cart`, `begin_checkout`, `checkout_success`, `quiz_start`, `quiz_complete`, `newsletter_signup`, `guide_view`, `merchant_feed_view`) are logged to the console in dev and persisted as `CartEvent` rows — but **only after the visitor opts into analytics cookies**. The consent banner gives accept and reject equal visual weight, and no marketing script loads before a positive decision.
-
-## Compliance notes
-
-- Every store publishes shipping, returns, privacy and terms pages generated from its own store record.
-- Dropshipping transparency is enforced by design: supplier fulfillment disclosure, realistic delivery windows on every product, import-tax disclaimers, support contact on every policy page.
-- Seeded products have `ratingAverage: null` — the UI states "no reviews yet" instead of faking social proof.
-- The content guardrails flag thin/duplicate content (recommend noindex), fake claims, and copy implying local stock.
-- Replace the seed legal copy with lawyer-reviewed text per market before launching commercially.
-
-## Deployment notes
-
-1. Switch the Prisma datasource to `postgresql` and set `DATABASE_URL`; optionally convert the JSON-encoded String columns to native `Json` and the documented String enums to native enums (SQLite limitation only).
-2. `npx prisma migrate deploy` (or `db push` for previews), then seed or import real catalog data.
-3. Point all store domains at the deployment (e.g. Vercel: add each domain to the project). The middleware does the rest.
-4. Set a strong `ADMIN_PASSWORD` — and put real auth in front of `/admin` before exposing it publicly.
-5. Replace `/api/placeholder` image URLs with real product imagery on a CDN (add the hostname to `next.config.ts` `images.remotePatterns`).
-6. Set `MOCK_CHECKOUT=false` only after wiring a real `PaymentProvider`.
-
-## Scripts
-
-| Script | What it does |
+| Provider | Status |
 | --- | --- |
-| `npm run dev` | Dev server |
-| `npm run build` / `npm start` | Production build / serve |
-| `npm run lint` | ESLint (next/core-web-vitals + TS) |
-| `npm run typecheck` | `tsc --noEmit` (strict mode) |
-| `npm run db:push` | Apply schema to the database |
-| `npm run db:seed` | Seed the 5 demo stores (idempotent) |
-| `npm run prisma:studio` | Browse the database |
+| `mock` | Functional local discovery/media ingestion |
+| `ebay` | Official Browse API search/details when OAuth env vars exist; affiliate mode by default |
+| `aliexpress` | Signing scaffold plus fixture mode; no checkout unless explicitly enabled later |
+| `temu`, `amazon`, `wish`, `alibaba` | Health/capability scaffolds; no checkout claims |
+
+The project intentionally does not use captcha bypasses, login-wall bypasses, marketplace scraping or reader proxies for AliExpress, eBay, Temu, Amazon, Wish or Alibaba. Use official APIs, affiliate APIs, authorized feeds, supplier-provided feeds or user-provided URLs where fetching is allowed.
+
+## Media Ingestion
+
+Dynamic supplier media is stored at runtime, not committed to Git and not written to `public/catalog`.
+
+Local dev stores under:
+
+```text
+public/uploads/dev-media
+```
+
+Production should use Vercel Blob with `BLOB_READ_WRITE_TOKEN`. `fetchMedia` only accepts `http`/`https`, rejects unsafe URL schemes, enforces content type/size limits, computes SHA-256 hashes and dedupes stored assets by hash.
+
+`ProductMediaAsset` is the durable media model. `ProductImage` is kept in sync for existing storefront compatibility.
+
+## Catalog Jobs
+
+Vercel cron is configured in `vercel.json`:
+
+```json
+{ "path": "/api/cron/catalog-sync", "schedule": "0 3 * * *" }
+```
+
+In production the route requires:
+
+```text
+Authorization: Bearer $CRON_SECRET
+```
+
+Local scripts:
+
+```bash
+npm run catalog:health
+npm run catalog:discover
+npm run catalog:run-jobs
+npm run catalog:sync
+```
+
+Jobs are small-batch and lock rows with `CatalogJob.lockedAt/lockedBy`, so one run does not try to process every store at once.
+
+## Fulfillment Modes
+
+Products can be `DROPSHIP`, `AFFILIATE`, `MANUAL` or `MOCK`.
+
+Automatic supplier ordering must only be enabled when the provider has an approved checkout/order API. Otherwise the product stays affiliate/manual/mock and should not pretend automatic fulfillment exists.
+
+Checkout is still a local mock payment flow. The schema now includes `Customer`, `Order`, `OrderItem` and `SupplierOrder` for the next order-routing phase.
+
+## Quality Gates
+
+Candidates are rejected or require manual review for risky categories such as supplements, medical/cosmetic claims, baby safety products, regulated drones, batteries/chargers without safety info, weapons, adult/restricted products and counterfeit/trademark risk.
+
+A product needs source info, shipping estimate, acceptable margin, enough supplier media and a passing score before it can move toward publication. No fake reviews, fake sales counts, fake scarcity or fake local stock are generated.
+
+## Admin Import
+
+`/admin/import` now shows:
+
+- provider health and missing env vars
+- discovery form by store/provider/query
+- latest candidates
+- score, media ingestion count and rejection reason
+- approve/reject buttons
+- import approved candidates as draft products
+- latest sync runs
+
+## Adding A Provider
+
+1. Add an adapter in `src/lib/suppliers/providers`.
+2. Implement the `CommerceProvider` contract.
+3. Validate normalized outputs with the shared Zod schemas.
+4. Add it to `registry.ts`.
+5. Store raw provider signals in candidate/product JSON for audit.
+6. Keep unsupported checkout/tracking as explicit unsupported capabilities.
+
+## Launching Many Stores Safely
+
+Use preview/noindex for generated stores, configure providers per store, import candidates into review, publish only products that pass quality gates, and keep merchant feeds limited to live fulfillable products with stored images. Scale by adding StoreSupplierSettings and catalog jobs, not by copying apps.
+

@@ -1,26 +1,17 @@
 import { prisma } from "@/lib/db";
-import { syncProductImages } from "@/lib/images/sync-product-images";
-import { syncSupplierImagesForProduct } from "@/lib/suppliers/sync-supplier-images";
-import type { ScrapedSupplierImage } from "@/lib/images/types";
-import { calculatePrice } from "@/lib/pricing/calculate-price";
-import { computeProductScore } from "@/lib/products/product-score";
-import { mockSupplier } from "@/lib/suppliers/mock-supplier";
+import {
+  approveCandidate,
+  discoverProductsForStore,
+  importCandidateToProduct,
+} from "@/lib/catalog/candidate-service";
 import type { SupplierAdapter } from "@/lib/suppliers/types";
-import { toJson } from "@/lib/utils/json";
 
 /**
- * Supplier import pipeline: search -> normalize -> price -> score -> upsert.
+ * Compatibility wrapper for the old generator/admin flow.
  *
- * This is how a store grows its catalog from any supplier without manual
- * data entry. Imported products land unpublished so a human (or the AI
- * guardrails) can review copy and compliance before they go live.
- *
- * Example:
- *   await importProductsForStore({
- *     storeSlug: "drones",
- *     categorySlug: "camera-drones",
- *     query: "drone camera",
- *   });
+ * Supplier search now writes ProductCandidate rows first. This wrapper uses
+ * the mock commerce provider, approves enriched candidates and imports them as
+ * unpublished/noindex Product drafts so existing generator code keeps working.
  */
 
 export interface ImportResult {
@@ -36,7 +27,8 @@ export async function importProductsForStore(options: {
   adapter?: SupplierAdapter;
   targetMargin?: number;
 }): Promise<ImportResult> {
-  const adapter = options.adapter ?? mockSupplier;
+  void options.adapter;
+  void options.targetMargin;
 
   const store = await prisma.store.findUnique({
     where: { slug: options.storeSlug },
@@ -50,118 +42,41 @@ export async function importProductsForStore(options: {
     throw new Error(`Unknown category: ${options.categorySlug}`);
   }
 
-  const rawProducts = await adapter.searchProducts(options.query);
+  await discoverProductsForStore({
+    storeId: store.id,
+    categoryId: category.id,
+    providerKey: "mock",
+    query: options.query,
+    limit: 8,
+  });
+
+  const candidates = await prisma.productCandidate.findMany({
+    where: {
+      storeId: store.id,
+      categoryId: category.id,
+      providerKey: "mock",
+      status: "ENRICHED",
+      importedProductId: null,
+    },
+    orderBy: { score: "desc" },
+    take: 8,
+  });
+
   const result: ImportResult = { imported: 0, skipped: 0, slugs: [] };
-
-  for (const raw of rawProducts) {
-    const normalized = adapter.normalizeProduct(raw);
-
-    const existing = await prisma.product.findFirst({
-      where: { storeId: store.id, supplierProductId: normalized.supplierProductId },
+  for (const candidate of candidates) {
+    await approveCandidate(candidate.id);
+    const productId = await importCandidateToProduct(candidate.id);
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { slug: true },
     });
-    if (existing) {
-      result.skipped += 1;
-      continue;
+    if (product) {
+      result.imported += 1;
+      result.slugs.push(product.slug);
     }
-
-    const pricing = calculatePrice({
-      supplierCost: normalized.cost,
-      shippingCost: normalized.shippingCost,
-      targetMargin: options.targetMargin ?? 0.35,
-    });
-
-    const slug = slugify(normalized.title);
-    const score = computeProductScore({
-      marginPercent: pricing.grossMarginPercent,
-      shippingDaysMin: normalized.shippingDaysMin,
-      shippingDaysMax: normalized.shippingDaysMax,
-      supplierReliability: adapter.reliabilityScore,
-      stockStatus: normalized.stockStatus,
-      returnRiskRate: 0.04,
-      content: {
-        descriptionLength: normalized.description.length,
-        prosCount: 0,
-        consCount: 0,
-        specsCount: normalized.specs.length,
-        faqCount: 0,
-        useCasesCount: normalized.keywords.length,
-        hasImageAlt: true,
-      },
-    });
-
-    const sku = `${store.slug.toUpperCase().slice(0, 4)}-${normalized.supplierProductId}`;
-
-    const product = await prisma.product.create({
-      data: {
-        storeId: store.id,
-        categoryId: category.id,
-        slug,
-        title: normalized.title,
-        subtitle: "",
-        description: normalized.description,
-        shortDescription: normalized.description.slice(0, 160),
-        brand: store.name,
-        sku,
-        imageUrl: normalized.imageUrl,
-        imageAlt: normalized.title,
-        price: pricing.price,
-        currency: store.currency,
-        cost: normalized.cost,
-        shippingCost: normalized.shippingCost,
-        marginPercent: pricing.grossMarginPercent,
-        stockStatus: normalized.stockStatus,
-        supplierName: normalized.supplierName,
-        supplierProductId: normalized.supplierProductId,
-        supplierSource: normalized.supplierSource ?? "aliexpress",
-        supplierUrl: normalized.supplierUrl ?? null,
-        supplierSearchQuery: normalized.supplierSearchQuery ?? normalized.title,
-        shippingDaysMin: normalized.shippingDaysMin,
-        shippingDaysMax: normalized.shippingDaysMax,
-        countryOfOrigin: normalized.countryOfOrigin,
-        specs: toJson(normalized.specs),
-        useCases: toJson(normalized.keywords),
-        seoTitle: `${normalized.title} | ${store.name}`,
-        seoDescription: normalized.description.slice(0, 155),
-        productScore: score,
-        // Imported products require human/guardrail review before publishing.
-        isPublished: false,
-        noindex: true,
-      },
-    });
-
-    const scrapedImages: ScrapedSupplierImage[] | undefined =
-      normalized.galleryUrls?.map((url, index) => ({
-        url,
-        source: normalized.supplierSource ?? "aliexpress",
-        supplierProductId: normalized.supplierProductId,
-        sortOrder: index,
-      }));
-
-    if (scrapedImages?.length) {
-      await syncProductImages(prisma, product.id, {
-        title: normalized.title,
-        slug,
-        sku,
-        niche: store.niche,
-        brand: store.name,
-        keywords: normalized.keywords,
-        scrapedImages,
-      });
-    } else {
-      await syncSupplierImagesForProduct(prisma, product.id);
-    }
-
-    result.imported += 1;
-    result.slugs.push(slug);
   }
 
+  result.skipped = Math.max(0, candidates.length - result.imported);
   return result;
 }
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}

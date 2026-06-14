@@ -15,7 +15,10 @@
     "db:refresh-images": "tsx scripts/refresh-product-images.ts",
     "sync:supplier-images": "tsx scripts/sync-supplier-images.ts",
     "catalog:download": "tsx scripts/download-catalog-images.ts",
-    "catalog:sync": "npm run catalog:download && npm run db:refresh-images",
+    "catalog:discover": "tsx scripts/catalog-sync.ts discover",
+    "catalog:run-jobs": "tsx scripts/catalog-sync.ts run-jobs",
+    "catalog:sync": "tsx scripts/catalog-sync.ts sync",
+    "catalog:health": "tsx scripts/catalog-sync.ts health",
     "prisma:studio": "prisma studio"
   },
   "prisma": {
@@ -23,6 +26,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
+    "@vercel/blob": "^2.4.0",
     "next": "^15.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

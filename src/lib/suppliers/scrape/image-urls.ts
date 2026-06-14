@@ -6,7 +6,7 @@ const MARKETPLACE_IMAGE_HOST =
 const SKIP_IMAGE_PATTERN =
   /(?:logo|icon|avatar|badge|banner|sprite|payment|flag|\/48x48|\/20x20|\/702x72|-tps-\d+-\d+|imgextra\/i\d+\/O1CN)/i;
 
-/** Strip markdown / Jina reader artifacts from a raw URL token. */
+/** Strip markdown artifacts from a raw URL token. */
 export function cleanRawImageUrl(raw: string): string {
   let url = raw.trim();
   const markdownSplit = url.indexOf("](");

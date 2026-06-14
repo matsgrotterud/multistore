@@ -252,6 +252,8 @@ export async function createStoreFromBlueprint(
             storeId: store.id,
             categoryId: category.id,
             productScore: { gte: threshold },
+            qualityStatus: "READY",
+            mediaStatus: "OK",
           },
           data: { isPublished: true, noindex: false },
         });

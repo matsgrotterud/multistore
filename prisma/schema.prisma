@@ -57,6 +57,13 @@ model Store {
   cartEvents            CartEvent[]
   newsletterSubscribers NewsletterSubscriber[]
   experiments           Experiment[]
+  supplierSettings      StoreSupplierSettings[]
+  productCandidates     ProductCandidate[]
+  catalogSyncRuns       CatalogSyncRun[]
+  catalogJobs           CatalogJob[]
+  customers             Customer[]
+  orders                Order[]
+  wishlists             Wishlist[]
 }
 
 model StoreSettings {
@@ -111,6 +118,7 @@ model Category {
 
   store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   products Product[]
+  productCandidates ProductCandidate[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -146,6 +154,15 @@ model Product {
   supplierUrl       String?
   supplierSearchQuery String?
   imagesSyncedAt    DateTime?
+  providerKey       String?
+  externalId        String?
+  sourceUrl         String?
+  affiliateUrl      String?
+  fulfillmentMode   String   @default("MANUAL")
+  lastSupplierSyncAt DateTime?
+  supplierDataJson  String   @default("{}")
+  mediaStatus       String   @default("UNKNOWN")
+  qualityStatus     String   @default("NEEDS_REVIEW")
   shippingDaysMin   Int
   shippingDaysMax   Int
   countryOfOrigin   String?
@@ -176,6 +193,9 @@ model Product {
   store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   category Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   images   ProductImage[]
+  mediaAssets ProductMediaAsset[]
+  orderItems OrderItem[]
+  wishlistItems WishlistItem[]
 
   @@unique([storeId, slug])
   @@index([storeId, isPublished])
@@ -189,10 +209,292 @@ model ProductImage {
   alt       String  @default("")
   sortOrder Int     @default(0)
   isPrimary Boolean @default(false)
+  sourceUrl String?
+  storageKey String?
+  providerKey String?
+  externalId String?
+  contentHash String?
+  width Int?
+  height Int?
+  contentType String?
+  ingestionStatus String @default("LEGACY")
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
+}
+
+model SupplierProvider {
+  id                     String   @id @default(cuid())
+  key                    String   @unique
+  name                   String
+  type                   String
+  isEnabled              Boolean  @default(false)
+  supportsSearch         Boolean  @default(false)
+  supportsProductDetails Boolean  @default(false)
+  supportsImages         Boolean  @default(false)
+  supportsVideo          Boolean  @default(false)
+  supportsInventory      Boolean  @default(false)
+  supportsPricing        Boolean  @default(false)
+  supportsCheckout       Boolean  @default(false)
+  supportsTracking       Boolean  @default(false)
+  supportsReturns        Boolean  @default(false)
+  defaultFulfillmentMode String   @default("AFFILIATE")
+  reliabilityScore       Float    @default(0.75)
+  averageShippingDays    Int      @default(14)
+  configJson             String   @default("{}")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model StoreSupplierSettings {
+  id                String   @id @default(cuid())
+  storeId           String
+  providerKey       String
+  isEnabled         Boolean  @default(true)
+  priority          Int      @default(0)
+  fulfillmentMode   String   @default("AFFILIATE")
+  importQueries     String   @default("[]")
+  excludedKeywords  String   @default("[]")
+  minMarginPercent  Float    @default(25)
+  minProductScore   Float    @default(75)
+  maxShippingDays   Int      @default(18)
+  autoPublish       Boolean  @default(false)
+  settingsJson      String   @default("{}")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, providerKey])
+  @@index([storeId])
+}
+
+model ProductCandidate {
+  id                  String   @id @default(cuid())
+  storeId             String
+  categoryId          String?
+  providerKey         String
+  externalId          String
+  sourceUrl           String?
+  affiliateUrl        String?
+  titleRaw            String
+  titleEnhanced       String?
+  descriptionRaw      String?
+  descriptionEnhanced String?
+  brandRaw            String?
+  priceRaw            Float?
+  currencyRaw         String?
+  supplierCost        Float?
+  shippingCost        Float?
+  marginPercent       Float?
+  stockStatus         String   @default("UNKNOWN")
+  shippingDaysMin     Int?
+  shippingDaysMax     Int?
+  countryOfOrigin     String?
+  gtin                String?
+  skuCandidate        String?
+  specsJson           String   @default("[]")
+  variantsJson        String   @default("[]")
+  mediaJson           String   @default("[]")
+  signalsJson         String   @default("{}")
+  riskJson            String   @default("{}")
+  score               Float    @default(0)
+  status              String   @default("NEW")
+  rejectionReason     String?
+  importedProductId   String?
+  lastSeenAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category    Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  mediaAssets ProductMediaAsset[]
+
+  @@unique([storeId, providerKey, externalId])
+  @@index([storeId, status])
+  @@index([providerKey, externalId])
+}
+
+model ProductMediaAsset {
+  id                String   @id @default(cuid())
+  productId         String?
+  candidateId       String?
+  providerKey       String?
+  externalId        String?
+  mediaType         String   @default("IMAGE")
+  sourceUrl         String
+  storageUrl        String?
+  storageKey        String?
+  thumbnailUrl      String?
+  alt               String   @default("")
+  sortOrder         Int      @default(0)
+  isPrimary         Boolean  @default(false)
+  width             Int?
+  height            Int?
+  contentType       String?
+  contentHash       String?
+  fileSize          Int?
+  licenseStatus     String   @default("SOURCE_SUPPLIER")
+  ingestionStatus   String   @default("PENDING")
+  enhancementStatus String   @default("NOT_REQUESTED")
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  product   Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  candidate ProductCandidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([candidateId])
+  @@index([contentHash])
+}
+
+model CatalogSyncRun {
+  id          String    @id @default(cuid())
+  storeId     String?
+  providerKey String?
+  status      String    @default("RUNNING")
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  requestedBy String    @default("system")
+  summaryJson String    @default("{}")
+  errorMessage String?
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, startedAt])
+}
+
+model CatalogJob {
+  id          String   @id @default(cuid())
+  storeId     String
+  providerKey String
+  jobType     String
+  status      String   @default("QUEUED")
+  payloadJson String   @default("{}")
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  lockedAt    DateTime?
+  lockedBy    String?
+  runAfter    DateTime @default(now())
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([storeId, jobType])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  storeId   String
+  email     String
+  name      String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders    Order[]
+  wishlists Wishlist[]
+
+  @@unique([storeId, email])
+}
+
+model Order {
+  id                  String   @id @default(cuid())
+  storeId             String
+  customerId          String?
+  orderNumber         String   @unique
+  status              String   @default("DRAFT")
+  paymentStatus       String   @default("UNPAID")
+  fulfillmentStatus   String   @default("NOT_STARTED")
+  currency            String
+  subtotal            Float
+  shippingTotal       Float    @default(0)
+  taxTotal            Float    @default(0)
+  grandTotal          Float
+  shippingAddressJson String   @default("{}")
+  billingAddressJson  String   @default("{}")
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  supplierOrders SupplierOrder[]
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  productId       String
+  quantity        Int
+  titleSnapshot   String
+  skuSnapshot     String
+  unitPrice       Float
+  unitCost        Float?
+  providerKey     String?
+  externalId      String?
+  fulfillmentMode String  @default("MANUAL")
+  supplierOrderId String?
+  status          String  @default("PENDING")
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model SupplierOrder {
+  id              String   @id @default(cuid())
+  orderId         String
+  providerKey     String
+  externalOrderId String?
+  status          String   @default("PENDING")
+  requestJson     String   @default("{}")
+  responseJson    String   @default("{}")
+  trackingJson    String   @default("[]")
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([providerKey, status])
+}
+
+model Wishlist {
+  id          String   @id @default(cuid())
+  storeId     String
+  anonymousId String?
+  customerId  String?
+  email       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    WishlistItem[]
+
+  @@index([storeId, anonymousId])
+  @@index([storeId, email])
+}
+
+model WishlistItem {
+  id         String   @id @default(cuid())
+  wishlistId String
+  productId  String
+  createdAt  DateTime @default(now())
+
+  wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([wishlistId, productId])
 }
 
 model ContentPage {

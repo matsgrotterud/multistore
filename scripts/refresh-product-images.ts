@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { syncSupplierImagesForAllStores } from "../src/lib/suppliers/sync-supplier-images";
 
 /**
- * @deprecated Use `npm run sync:supplier-images` — refreshes scraped supplier CDN URLs in DB.
+ * @deprecated Use provider-backed catalog jobs. This shim does not fetch marketplace pages.
  */
 const prisma = new PrismaClient();
 
@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   for (const batch of batches) {
     total += batch.results.filter((result) => result.imageCount > 0).length;
   }
-  console.log(`Updated ${total} products with scraped supplier images.`);
+  console.log(`Updated ${total} products through the legacy image shim.`);
 }
 
 main()

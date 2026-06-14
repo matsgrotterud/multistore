@@ -5,8 +5,8 @@ import {
 } from "../src/lib/suppliers/sync-supplier-images";
 
 /**
- * Scrape supplier listing images for all products and store CDN URLs in the DB.
- * Safe to re-run daily — does not touch product copy or pricing.
+ * Deprecated legacy image sync shim.
+ * Runtime supplier media now flows through provider adapters and catalog jobs.
  *
  *   npm run sync:supplier-images
  *   npm run sync:supplier-images -- --store=pet-grooming
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     totalProducts += batch.results.length;
     console.log(`  ${batch.storeSlug}: ${ok}/${batch.results.length} products updated`);
   }
-  console.log(`\nDone. ${totalOk}/${totalProducts} products now have scraped supplier images.`);
+  console.log(`\nDone. ${totalOk}/${totalProducts} products updated by legacy image shim.`);
 }
 
 main()
