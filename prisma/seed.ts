@@ -1,6 +1,10 @@
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { computeProductScore } from "../src/lib/products/product-score";
+import {
+  DEFAULT_STORE_SETTINGS,
+  serializeStoreSettings,
+} from "../src/lib/settings/store-settings";
 import { bambooPolicies, bambooSeed } from "./seed-data/bamboo-toothbrushes";
 import { dronesPolicies, dronesSeed } from "./seed-data/drones";
 import { ergonomicPolicies, ergonomicSeed } from "./seed-data/ergonomic-office";
@@ -125,6 +129,9 @@ async function seedStore(
       termsOfSale: policies.termsOfSale,
       isActive: true,
       theme: { create: seed.theme },
+      settings: {
+        create: { settings: serializeStoreSettings(DEFAULT_STORE_SETTINGS) },
+      },
       domains: {
         create: seed.domains.map((hostname, index) => ({
           hostname,

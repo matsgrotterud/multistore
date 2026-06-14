@@ -1,19 +1,16 @@
 // Multi-tenant store factory schema.
 //
-// SQLite is used for local development. The schema is intentionally
-// Postgres-compatible: to deploy on Postgres, change the datasource provider
-// to "postgresql" and (optionally) convert the String fields documented as
-// "JSON-encoded" below to native `Json` columns, and the *Status/*Type String
-// fields to native enums. SQLite does not support `Json` or `enum` in Prisma,
-// so we store JSON as validated strings and constrain enums in application
-// code with Zod (see src/lib/types.ts and src/lib/validation/schemas.ts).
+// Postgres (Neon) for production and recommended local dev.
+// JSON fields are stored as String columns for SQLite/Postgres parity; validate
+// with Zod in app code (see src/lib/types.ts and src/lib/validation/schemas.ts).
+// On Postgres you may later migrate String JSON columns to native `Json` types.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

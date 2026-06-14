@@ -4,8 +4,9 @@
   "private": true,
   "description": "Multi-tenant dropshipping store factory: one Next.js codebase serving many niche storefronts resolved by domain.",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
