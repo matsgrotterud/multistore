@@ -1,8 +1,7 @@
 import {
   hashString,
   matchPhotoTag,
-  pickPhotoIds,
-  unsplashPhotoUrl,
+  pickCatalogPaths,
 } from "@/lib/images/photo-catalog";
 import type { ResolveProductImagesInput, ResolvedProductImages } from "@/lib/images/types";
 
@@ -38,8 +37,7 @@ export function resolveProductImages(input: ResolveProductImagesInput): Resolved
     .join(" ");
 
   const tag = matchPhotoTag(searchText);
-  const photoIds = pickPhotoIds(tag, `${input.sku}-${input.slug}`, 3);
-  const galleryUrls = photoIds.map((id) => unsplashPhotoUrl(id));
+  const galleryUrls = pickCatalogPaths(tag, `${input.sku}-${input.slug}`, 3);
 
   return {
     primaryUrl: galleryUrls[0],

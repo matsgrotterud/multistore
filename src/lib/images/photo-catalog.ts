@@ -1,113 +1,130 @@
 /**
- * Curated Unsplash photo IDs grouped by commerce niche tags.
- * Each ID is used as: https://images.unsplash.com/photo-{id}?auto=format&fit=crop&w=800&h=800&q=80
+ * Curated product photography per commerce niche.
  *
- * Replace with scraped supplier URLs once the import pipeline is wired to
- * Ali/Temu/eBay adapters; keep these as fallbacks when scrape fails.
+ * Source photos are verified Unsplash IDs, downloaded once into
+ * `public/catalog/{tag}/` by `npm run catalog:download` so storefronts
+ * serve stable self-hosted URLs (required before AI enhancement / re-hosting
+ * scraped supplier images).
  */
 
-export const UNSPLASH_PHOTOS_BY_TAG: Record<string, string[]> = {
+/** Verified Unsplash photo IDs — must return HTTP 200 before adding here. */
+export const CATALOG_SOURCE_BY_TAG: Record<string, string[]> = {
   drone: [
-    "1473968512647-3edb047325b9",
-    "1508617349838-50600750fdc4",
-    "1581091228775-ef9b1f878663",
+    "1724406096690-9fdf908faa87",
+    "1706380003139-7471c33ca2b2",
+    "1581092160607-ee22621dd758",
     "1511707171634-5f897ff02aa9",
-    "1524143989755-3154c9f47c86",
+    "1516035069371-29a1b244cc32",
   ],
   fpv: [
+    "1724406096690-9fdf908faa87",
     "1581092160607-ee22621dd758",
-    "1524143989755-3154c9f47c86",
-    "1473968512647-3edb047325b9",
+    "1706380003139-7471c33ca2b2",
   ],
   camera: [
     "1516035069371-29a1b244cc32",
     "1511707171634-5f897ff02aa9",
-    "1502920917128-1aa500764b81",
+    "1526170375885-4d8ecf77b99f",
   ],
   battery: [
-    "1609091839311-03d0f8f0e239",
-    "1581091228775-ef9b1f878663",
+    "1526170375885-4d8ecf77b99f",
+    "1560472354-b33ff0c44a43",
+    "1527864550417-7fd91fc51a46",
   ],
   bamboo: [
-    "1607613009820-a38f781a5630",
-    "1559591935-cfe9c39b2a36",
-    "1522335789203-aabd1fc0544c",
+    "1542601906990-b4d3fb778b09",
+    "1556742049-0cfed4f6a45d",
+    "1441974231531-c6227db76b6e",
   ],
   toothbrush: [
-    "1607613009820-a38f781a5630",
-    "1559591935-cfe9c39b2a36",
-    "1522337360788-8b13bef204ed",
+    "1542601906990-b4d3fb778b09",
+    "1556742049-0cfed4f6a45d",
+    "1526170375885-4d8ecf77b99f",
   ],
   eco: [
     "1542601906990-b4d3fb778b09",
-    "1522335789203-aabd1fc0544c",
-    "1559591935-cfe9c39b2a36",
+    "1441974231531-c6227db76b6e",
+    "1556742049-0cfed4f6a45d",
   ],
   office: [
-    "1586023492125-27b2c045efd7",
-    "1541557536629-80da8773714c",
     "1497366216548-37526070297c",
+    "1586023492125-27b2c045efd7",
+    "1527864550417-7fd91fc51a46",
+    "1441986300917-64674bd600d8",
   ],
   ergonomic: [
-    "1541557536629-80da8773714c",
     "1586023492125-27b2c045efd7",
-    "1592078619762-3c2a6d2550d8",
+    "1497366216548-37526070297c",
+    "1527864550417-7fd91fc51a46",
   ],
   chair: [
     "1586023492125-27b2c045efd7",
-    "1541557536629-80da8773714c",
+    "1497366216548-37526070297c",
+    "1485827404703-89b55fcc595e",
   ],
   desk: [
     "1497366216548-37526070297c",
-    "1592078619762-3c2a6d2550d8",
+    "1527864550417-7fd91fc51a46",
+    "1441986300917-64674bd600d8",
   ],
   pet: [
-    "1583339795763-f0a775bd6949",
-    "1516734212188-a067f81ed577",
     "1601758228041-f3b2795255f1",
+    "1552053831-71594a27632d",
+    "1438761681033-6461ffad8d80",
+    "1534528741775-53994a69daeb",
   ],
   grooming: [
-    "1583511655852-d9633eaa0ae2",
     "1601758228041-f3b2795255f1",
-    "1516734212188-a067f81ed577",
+    "1552053831-71594a27632d",
+    "1438761681033-6461ffad8d80",
   ],
   dog: [
-    "1583339795763-f0a775bd6949",
-    "1516734212188-a067f81ed577",
+    "1601758228041-f3b2795255f1",
+    "1552053831-71594a27632d",
+    "1534528741775-53994a69daeb",
   ],
   cat: [
-    "1514884799127-4eb4c7f4a3f4",
     "1601758228041-f3b2795255f1",
+    "1552053831-71594a27632d",
+    "1438761681033-6461ffad8d80",
   ],
   hiking: [
     "1551698618-1dfe5d97d256",
-    "1478131141031-14418a10a092",
-    "1504280390360-397f6f983f58",
+    "1506905925346-21bda4d32df4",
+    "1519681393784-d120267933ba",
+    "1470071459604-3b5ec3a7fe05",
   ],
   backpack: [
-    "1553062407-98aebc8fa20f",
-    "1622260614693-aa1e213375f3",
-    "1478131141031-14418a10a092",
+    "1506905925346-21bda4d32df4",
+    "1519681393784-d120267933ba",
+    "1551698618-1dfe5d97d256",
   ],
   camping: [
-    "1504280390360-397f6f983f58",
-    "1478131141031-14418a10a092",
-    "1523987351523-f7d1479a3a5e",
+    "1519681393784-d120267933ba",
+    "1470071459604-3b5ec3a7fe05",
+    "1441974231531-c6227db76b6e",
   ],
   poles: [
     "1551698618-1dfe5d97d256",
-    "1478131141031-14418a10a092",
+    "1506905925346-21bda4d32df4",
+    "1470071459604-3b5ec3a7fe05",
   ],
   product: [
     "1523275335684-37898b6baf30",
-    "1560343090-d0404922a906",
-    "1542291026-7eec264c27ff",
     "1505740420928-5e560c06d30e",
+    "1542291026-7eec264c27ff",
+    "1560472354-b33ff0c44a43",
+    "1556742049-0cfed4f6a45d",
   ],
 };
 
 export function unsplashPhotoUrl(photoId: string, width = 800, height = 800): string {
   return `https://images.unsplash.com/photo-${photoId}?auto=format&fit=crop&w=${width}&h=${height}&q=80`;
+}
+
+export function catalogPhotoPath(tag: string, fileIndex: number): string {
+  const num = String(fileIndex + 1).padStart(2, "0");
+  return `/catalog/${tag}/${num}.jpg`;
 }
 
 export function hashString(value: string): number {
@@ -129,7 +146,7 @@ export function matchPhotoTag(text: string): string {
   let bestTag = "product";
   let bestScore = 0;
 
-  for (const tag of Object.keys(UNSPLASH_PHOTOS_BY_TAG)) {
+  for (const tag of Object.keys(CATALOG_SOURCE_BY_TAG)) {
     let score = 0;
     if (tokens.includes(tag)) score += 3;
     if (text.toLowerCase().includes(tag)) score += 2;
@@ -145,12 +162,17 @@ export function matchPhotoTag(text: string): string {
   return bestTag;
 }
 
-export function pickPhotoIds(tag: string, seed: string, count: number): string[] {
-  const pool = UNSPLASH_PHOTOS_BY_TAG[tag] ?? UNSPLASH_PHOTOS_BY_TAG.product;
-  const start = hashString(seed) % pool.length;
-  const ids: string[] = [];
+/** Pick self-hosted catalog paths for a product (stable per sku+slug seed). */
+export function pickCatalogPaths(tag: string, seed: string, count: number): string[] {
+  const poolTag = tag in CATALOG_SOURCE_BY_TAG ? tag : "product";
+  const poolSize = CATALOG_SOURCE_BY_TAG[poolTag].length;
+  const start = hashString(seed) % poolSize;
+  const paths: string[] = [];
+
   for (let index = 0; index < count; index++) {
-    ids.push(pool[(start + index) % pool.length]);
+    const fileIndex = (start + index) % poolSize;
+    paths.push(catalogPhotoPath(poolTag, fileIndex));
   }
-  return [...new Set(ids)];
+
+  return [...new Set(paths)];
 }
