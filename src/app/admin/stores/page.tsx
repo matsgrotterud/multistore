@@ -42,7 +42,7 @@ export default async function AdminStoresPage() {
               <th className="px-4 py-3 font-medium">Content pages</th>
               <th className="px-4 py-3 font-medium">Subscribers</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Preview</th>
+              <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -70,12 +70,23 @@ export default async function AdminStoresPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <Link
-                    href={`/s/${store.slug}`}
-                    className="text-sm font-medium text-blue-700 underline"
-                  >
-                    Open
-                  </Link>
+                  <div className="flex items-center gap-3 text-sm font-medium">
+                    <Link
+                      href={`/admin/stores/${store.slug}/edit`}
+                      className="text-blue-700 underline"
+                    >
+                      Edit
+                    </Link>
+                    <Link
+                      href={`/admin/stores/${store.slug}/products`}
+                      className="text-blue-700 underline"
+                    >
+                      Products
+                    </Link>
+                    <Link href={`/s/${store.slug}`} className="text-slate-500 underline">
+                      Open
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}

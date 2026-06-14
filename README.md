@@ -50,7 +50,8 @@ src/
   app/
     s/[store]/...           All storefront routes (home, c/, p/, guides/, compare,
                             quiz, cart, checkout, search, policies/)
-    admin/...               Dashboard, stores, products, generator (+ login)
+    admin/...               Dashboard, stores (+ edit), products (+ edit),
+                            content/import/experiments/seo-audit, generator (+ login)
     api/feeds/google        Google Merchant Center feed (XML)
     api/track               First-party analytics sink -> CartEvent table
     api/placeholder         Deterministic branded SVG images (offline-friendly)
@@ -65,6 +66,8 @@ src/
     payments/               PaymentProvider interface + mock (Stripe-ready)
     ai/                     Blueprint/copy generation + content guardrails
     monetization/           Margin, bundles, upsell/subscription insights (admin-only)
+    settings/               Per-store StoreSettings (Zod schema + defaults)
+    actions/admin-*.ts      Admin Server Actions (store + product edit, Zod)
     analytics/              Event taxonomy + consent-gated client tracking
     quiz/                   Per-niche quiz configs + recommendation scoring
     cart/                   localStorage cart context (per store)
@@ -87,6 +90,39 @@ prisma/
 2. Add a seed module in `prisma/seed-data/` (copy an existing store) and register it in `prisma/seed.ts`; run `npm run db:seed`.
 3. Map the hostname in `src/config/domain-map.ts` (edge) — the Domain table covers server-side resolution automatically.
 4. Point DNS at the deployment. Done — same build serves the new tenant.
+
+## Admin CMS
+
+`/admin` is protected by `requireAdmin()` on every page (cookie-based; replace
+with real auth before public exposure). The sidebar covers Dashboard, Stores,
+Products, Content, Import, Experiments, SEO Audit and Generator.
+
+- **Store editor** (`/admin/stores/[slug]/edit`): brand/identity, domains
+  (one per line; primary flagged automatically and protected from collisions),
+  support + shipping defaults, policies, **theme with a live preview**, and a
+  full **StoreSettings** form (SEO defaults, homepage layout, monetization
+  targets, marketing pixels, personalization weights, automation thresholds,
+  compliance disclosures). Settings persist as a JSON-encoded `StoreSettings`
+  row, validated and fully defaulted by `src/lib/settings/store-settings.ts`.
+- **Product editor** (`/admin/stores/[slug]/products/[slug]/edit`): every
+  Product field, including line/pipe editors for pros, cons, use cases, specs
+  (`Label | Value`) and FAQ (`Question | Answer`). On save, `marginPercent` and
+  `productScore` are **recomputed with the same libraries the seed uses**, and
+  publish/no-index are toggled inline.
+- **Product images**: upload (PNG/JPEG/WebP/GIF/AVIF ≤ 5 MB), reorder, set
+  primary, edit alt text, delete. Uploads `POST /api/admin/upload` (auth) and are
+  written to `public/uploads/<storeSlug>/` (swap `src/lib/uploads/save-upload.ts`
+  for S3/R2 in production). The **primary `ProductImage` is mirrored to
+  `Product.imageUrl/imageAlt`**, so product cards, JSON-LD and the Merchant feed
+  stay correct; the storefront gallery uses `ProductImage[]` and falls back to
+  `imageUrl`/placeholder when none are uploaded.
+- Server Actions (`src/lib/actions/admin-store.ts`, `admin-product.ts`) validate
+  with Zod, enforce store scoping (no cross-tenant category/domain leaks), and
+  `revalidatePath` the affected storefront so edits appear immediately.
+
+Content/Import/Experiments/SEO-audit are scaffolded screens; their
+implementations land in subsequent Phase 2 sessions (supplier import UI, A/B
+runtime, personalization, SEO audit + launch checklist).
 
 ## SEO & structured data
 

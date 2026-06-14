@@ -88,7 +88,14 @@ export default async function ProductPage({ params }: ProductPageProps) {
       />
 
       <div className="mt-6 grid gap-10 lg:grid-cols-2">
-        <ProductGallery images={[product.imageUrl]} alt={product.imageAlt} />
+        <ProductGallery
+          images={
+            product.images.length > 0
+              ? product.images.map((image) => image.url)
+              : [product.imageUrl]
+          }
+          alt={product.imageAlt}
+        />
 
         <div>
           <p className="text-sm font-medium uppercase tracking-wide text-ink/50">

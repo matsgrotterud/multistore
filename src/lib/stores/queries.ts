@@ -45,7 +45,10 @@ export const getCategoryWithProducts = cache(
 export const getProductBySlug = cache(async (storeId: string, slug: string) => {
   return prisma.product.findUnique({
     where: { storeId_slug: { storeId, slug } },
-    include: { category: true },
+    include: {
+      category: true,
+      images: { orderBy: { sortOrder: "asc" } },
+    },
   });
 });
 

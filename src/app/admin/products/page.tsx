@@ -93,12 +93,20 @@ export default async function AdminProductsPage({ searchParams }: PageProps) {
                 <tr key={product.id}>
                   <td className="max-w-64 px-4 py-3">
                     <Link
-                      href={`/s/${activeStore.slug}/p/${product.slug}`}
+                      href={`/admin/stores/${activeStore.slug}/products/${product.slug}/edit`}
                       className="font-semibold text-blue-700 hover:underline"
                     >
                       {product.title}
                     </Link>
-                    <p className="text-xs text-slate-500">{product.sku}</p>
+                    <p className="text-xs text-slate-500">
+                      {product.sku} ·{" "}
+                      <Link
+                        href={`/s/${activeStore.slug}/p/${product.slug}`}
+                        className="underline hover:text-slate-700"
+                      >
+                        view
+                      </Link>
+                    </p>
                   </td>
                   <td className="px-4 py-3">{product.category.name}</td>
                   <td className="px-4 py-3">

@@ -44,6 +44,7 @@ model Store {
   updatedAt                 DateTime @updatedAt
 
   theme                 StoreTheme?
+  settings              StoreSettings?
   domains               Domain[]
   categories            Category[]
   products              Product[]
@@ -52,6 +53,18 @@ model Store {
   cartEvents            CartEvent[]
   newsletterSubscribers NewsletterSubscriber[]
   experiments           Experiment[]
+}
+
+model StoreSettings {
+  id      String @id @default(cuid())
+  storeId String @unique
+  // JSON-encoded StoreSettings object (see src/lib/settings/store-settings.ts).
+  // Holds SEO defaults, homepage layout, monetization targets, marketing
+  // pixels, personalization weights, automation thresholds and compliance
+  // toggles. Validated + defaulted in app code with Zod.
+  settings String @default("{}")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
 model StoreTheme {
@@ -150,12 +163,26 @@ model Product {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  images   ProductImage[]
 
   @@unique([storeId, slug])
   @@index([storeId, isPublished])
   @@index([categoryId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  url       String
+  alt       String  @default("")
+  sortOrder Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model ContentPage {
