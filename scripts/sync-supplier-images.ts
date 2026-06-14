@@ -16,12 +16,14 @@ const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   const storeArg = process.argv.find((arg) => arg.startsWith("--store="));
+  const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
   const storeSlug = storeArg?.split("=")[1];
-  const delayMs = Number(process.env.SUPPLIER_SYNC_DELAY_MS ?? "1500");
+  const limit = limitArg ? Number(limitArg.split("=")[1]) : undefined;
+  const delayMs = Number(process.env.SUPPLIER_SYNC_DELAY_MS ?? "800");
 
   if (storeSlug) {
-    console.log(`Syncing supplier images for store: ${storeSlug}`);
-    const results = await syncSupplierImagesForStore(prisma, storeSlug, { delayMs });
+    console.log(`Syncing supplier images for store: ${storeSlug}${limit ? ` (limit ${limit})` : ""}`);
+    const results = await syncSupplierImagesForStore(prisma, storeSlug, { delayMs, limit });
     const ok = results.filter((result) => result.imageCount > 0).length;
     console.log(`Updated ${ok}/${results.length} products.`);
     for (const result of results) {

@@ -21,12 +21,10 @@ export function normalizeMarketplaceImageUrl(url: string): string {
   let normalized = cleanRawImageUrl(url);
   if (!normalized) return "";
 
-  normalized = normalized.replace(/_\d+x\d+q?\d*\.(?:jpg|jpeg|png|webp|avif)$/i, (match) => {
-    const ext = match.split(".").pop() ?? "jpg";
-    return `.${ext === "avif" ? "jpg" : ext}`;
-  });
-  normalized = normalized.replace(/\.(?:jpg|jpeg|png|webp|avif)_\d+x\d+q?\d*\.(?:jpg|jpeg|avif)$/i, ".jpg");
+  normalized = normalized.replace(/\.(jpg|jpeg|png|webp|avif)_\d+x\d+q?\d*\.(?:jpg|jpeg|avif)$/i, ".$1");
+  normalized = normalized.replace(/_(?:\d+x\d+q?\d*)\.(jpg|jpeg|png|webp|avif)$/i, ".$1");
   normalized = normalized.replace(/\.avif$/i, ".jpg");
+  normalized = normalized.replace(/\.(jpg|jpeg|png|webp)\.(jpg|jpeg|png|webp)$/i, ".$1");
 
   if (SKIP_IMAGE_PATTERN.test(normalized)) return "";
   if (normalized.includes("imgextra/")) return "";

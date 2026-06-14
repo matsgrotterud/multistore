@@ -29,26 +29,7 @@ export async function searchAliExpressProducts(query: string): Promise<AliExpres
   const productIds = extractAliExpressProductIds(page).slice(0, 5);
   const searchImages = extractMarketplaceImageUrls(page);
 
-  if (productIds.length === 0) {
-    return searchImages.length
-      ? [{ productId: null, listingUrl: null, imageUrls: searchImages.slice(0, 6) }]
-      : [];
-  }
-
-  const results: AliExpressScrapeResult[] = [];
-  for (const productId of productIds.slice(0, 2)) {
-    try {
-      const detail = await scrapeAliExpressProduct(productId);
-      if (detail.imageUrls.length > 0) {
-        results.push(detail);
-        break;
-      }
-    } catch {
-      // Try next search result.
-    }
-  }
-
-  if (results.length === 0 && searchImages.length > 0) {
+  if (searchImages.length > 0) {
     return [
       {
         productId: productIds[0] ?? null,
@@ -58,7 +39,21 @@ export async function searchAliExpressProducts(query: string): Promise<AliExpres
     ];
   }
 
-  return results;
+  if (productIds.length === 0) return [];
+
+  // Optional second request for richer gallery when explicitly enabled.
+  if (process.env.SUPPLIER_FETCH_DETAIL === "1") {
+    for (const productId of productIds.slice(0, 1)) {
+      try {
+        const detail = await scrapeAliExpressProduct(productId);
+        if (detail.imageUrls.length > 0) return [detail];
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  return [];
 }
 
 export async function scrapeAliExpressListing(listingUrl: string): Promise<AliExpressScrapeResult> {
