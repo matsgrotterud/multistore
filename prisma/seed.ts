@@ -11,6 +11,7 @@ import { ergonomicPolicies, ergonomicSeed } from "./seed-data/ergonomic-office";
 import { hikingPolicies, hikingSeed } from "./seed-data/hiking-gear";
 import { petGroomingPolicies, petGroomingSeed } from "./seed-data/pet-grooming";
 import type { SeedProductInput, SeedStore } from "./seed-data/types";
+import { resolveProductImages } from "../src/lib/images/resolve-product-images";
 
 /**
  * Seed script: validates every product with Zod, computes margins and
@@ -87,8 +88,38 @@ function grossMarginPercent(product: SeedProductInput): number {
   return Math.round((margin / product.price) * 1000) / 10;
 }
 
-function placeholderImage(title: string, sku: string): string {
-  return `/api/placeholder?label=${encodeURIComponent(title.slice(0, 36))}&seed=${encodeURIComponent(sku)}`;
+function productImages(
+  productSeed: SeedProductInput,
+  storeNiche: string
+): { imageUrl: string; imageAlt: string; gallery: Array<{ url: string; alt: string; sortOrder: number; isPrimary: boolean }> } {
+  const resolved = resolveProductImages({
+    title: productSeed.title,
+    subtitle: productSeed.subtitle,
+    slug: productSeed.slug,
+    sku: productSeed.sku,
+    niche: storeNiche,
+    brand: productSeed.brand,
+    keywords: productSeed.useCases,
+  });
+  return {
+    imageUrl: resolved.primaryUrl,
+    imageAlt: resolved.primaryAlt,
+    gallery: resolved.galleryUrls.map((url, index) => ({
+      url,
+      alt: index === 0 ? resolved.primaryAlt : `${resolved.primaryAlt} — view ${index + 1}`,
+      sortOrder: index,
+      isPrimary: index === 0,
+    })),
+  };
+}
+
+function heroImage(title: string, seed: string, niche: string): string {
+  return resolveProductImages({
+    title,
+    slug: seed,
+    sku: seed,
+    niche,
+  }).primaryUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +220,8 @@ async function seedStore(
         },
       });
 
+      const images = productImages(productSeed, info.niche);
+
       const product = await prisma.product.create({
         data: {
           storeId: store.id,
@@ -201,8 +234,9 @@ async function seedStore(
           brand: productSeed.brand,
           sku: productSeed.sku,
           gtin: productSeed.gtin ?? null,
-          imageUrl: placeholderImage(productSeed.title, productSeed.sku),
-          imageAlt: `${productSeed.title} — ${productSeed.subtitle}`,
+          imageUrl: images.imageUrl,
+          imageAlt: images.imageAlt,
+          images: { create: images.gallery },
           price: productSeed.price,
           compareAtPrice: productSeed.compareAtPrice ?? null,
           currency: info.currency,
@@ -260,7 +294,7 @@ async function seedStore(
         body: guide.body,
         seoTitle: guide.seoTitle,
         seoDescription: guide.seoDescription,
-        heroImageUrl: placeholderImage(guide.title, `guide-${guide.slug}`),
+        heroImageUrl: heroImage(guide.title, `guide-${guide.slug}`, info.niche),
         relatedProductIds: JSON.stringify(resolveIds(guide.relatedProductSlugs)),
         isPublished: true,
         noindex: false,

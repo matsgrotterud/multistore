@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveProductImages } from "@/lib/images/resolve-product-images";
 
 /**
- * Deterministic SVG placeholder images so the whole platform runs offline
- * with a coherent, branded look. Replace product imageUrl values with real
- * supplier/CDN imagery in production.
+ * Legacy SVG placeholders + optional photo redirect.
+ * New products use resolveProductImages() directly (Unsplash CDN URLs).
  */
 
 const PALETTES: Array<[string, string]> = [
@@ -37,6 +37,20 @@ export function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const label = (searchParams.get("label") ?? "Product").slice(0, 40);
   const seed = searchParams.get("seed") ?? label;
+  const niche = searchParams.get("niche") ?? label;
+  const style = searchParams.get("style") ?? searchParams.get("photo");
+
+  // Redirect legacy placeholder requests to photographic URLs when requested.
+  if (style === "photo" || style === "1" || style === "true") {
+    const resolved = resolveProductImages({
+      title: label,
+      slug: seed,
+      sku: seed,
+      niche,
+    });
+    return NextResponse.redirect(resolved.primaryUrl, 302);
+  }
+
   const [from, to] = PALETTES[hash(seed) % PALETTES.length];
 
   const words = label.split(/\s+/);

@@ -13,6 +13,8 @@ export interface RawSupplierProduct {
   title: string;
   description: string;
   imageUrl: string;
+  /** Full supplier gallery when scraped from Ali/Temu/eBay (future). */
+  galleryUrls?: string[];
   /** Unit cost charged by the supplier, in USD. */
   costUsd: number;
   /** Supplier's shipping charge to typical destination, in USD. */

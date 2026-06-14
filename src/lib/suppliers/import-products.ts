@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { syncProductImages } from "@/lib/images/sync-product-images";
 import { calculatePrice } from "@/lib/pricing/calculate-price";
 import { computeProductScore } from "@/lib/products/product-score";
 import { mockSupplier } from "@/lib/suppliers/mock-supplier";
@@ -86,7 +87,9 @@ export async function importProductsForStore(options: {
       },
     });
 
-    await prisma.product.create({
+    const sku = `${store.slug.toUpperCase().slice(0, 4)}-${normalized.supplierProductId}`;
+
+    const product = await prisma.product.create({
       data: {
         storeId: store.id,
         categoryId: category.id,
@@ -96,7 +99,7 @@ export async function importProductsForStore(options: {
         description: normalized.description,
         shortDescription: normalized.description.slice(0, 160),
         brand: store.name,
-        sku: `${store.slug.toUpperCase().slice(0, 4)}-${normalized.supplierProductId}`,
+        sku,
         imageUrl: normalized.imageUrl,
         imageAlt: normalized.title,
         price: pricing.price,
@@ -119,6 +122,16 @@ export async function importProductsForStore(options: {
         isPublished: false,
         noindex: true,
       },
+    });
+
+    await syncProductImages(prisma, product.id, {
+      title: normalized.title,
+      slug,
+      sku,
+      niche: store.niche,
+      brand: store.name,
+      keywords: normalized.keywords,
+      // Future: pass normalized.scrapedGallery from Ali/Temu/eBay adapters here.
     });
 
     result.imported += 1;

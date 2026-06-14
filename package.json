@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:refresh-images": "tsx scripts/refresh-product-images.ts",
     "prisma:studio": "prisma studio"
   },
   "prisma": {

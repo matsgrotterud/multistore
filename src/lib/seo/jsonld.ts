@@ -51,17 +51,25 @@ export function webSiteJsonLd(store: Store): JsonLd {
   };
 }
 
-export function productJsonLd(store: Store, product: Product): JsonLd {
+export function productJsonLd(
+  store: Store,
+  product: Product,
+  galleryUrls?: string[]
+): JsonLd {
   const availability =
     AVAILABILITY[product.stockStatus as StockStatus] ??
     "https://schema.org/InStock";
+
+  const imageList = (galleryUrls?.length ? galleryUrls : [product.imageUrl]).map((url) =>
+    absoluteUrl(store, url)
+  );
 
   const jsonLd: JsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.title,
     description: product.shortDescription,
-    image: absoluteUrl(store, product.imageUrl),
+    image: imageList.length === 1 ? imageList[0] : imageList,
     sku: product.sku,
     brand: { "@type": "Brand", name: product.brand },
     ...(product.gtin ? { gtin: product.gtin } : {}),

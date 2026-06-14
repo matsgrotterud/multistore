@@ -11,7 +11,10 @@ const nextConfig: NextConfig = {
   // upload path for next/image (the storefront uses plain <img> today, but this
   // keeps the path valid if/when imagery migrates to next/image).
   images: {
-    remotePatterns: [],
+    remotePatterns: [
+      { protocol: "https", hostname: "images.unsplash.com", pathname: "/**" },
+      { protocol: "https", hostname: "plus.unsplash.com", pathname: "/**" },
+    ],
     localPatterns: [{ pathname: "/uploads/**" }, { pathname: "/api/placeholder" }],
   },
   // Multi-tenant rewrites are handled in src/middleware.ts based on the Host

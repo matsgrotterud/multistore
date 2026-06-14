@@ -5,6 +5,7 @@ import type {
   ShippingEstimate,
   SupplierAdapter,
 } from "@/lib/suppliers/types";
+import { resolveProductImages } from "@/lib/images/resolve-product-images";
 
 /**
  * Deterministic mock supplier used for local development and tests.
@@ -112,12 +113,27 @@ export class MockSupplierAdapter implements SupplierAdapter {
 
   normalizeProduct(raw: RawSupplierProduct): NormalizedSupplierProduct {
     const shipping = this.estimateShipping(raw);
+    const resolved = resolveProductImages({
+      title: raw.title,
+      slug: raw.id.toLowerCase(),
+      sku: raw.id,
+      niche: raw.keywords.join(" "),
+      keywords: raw.keywords,
+      scrapedImages: raw.galleryUrls?.length
+        ? raw.galleryUrls.map((url, index) => ({
+            url,
+            source: "other" as const,
+            supplierProductId: raw.id,
+            sortOrder: index,
+          }))
+        : undefined,
+    });
     return {
       supplierName: this.name,
       supplierProductId: raw.id,
       title: raw.title,
       description: raw.description,
-      imageUrl: raw.imageUrl,
+      imageUrl: resolved.primaryUrl,
       cost: raw.costUsd,
       shippingCost: shipping.costUsd,
       shippingDaysMin: shipping.daysMin,

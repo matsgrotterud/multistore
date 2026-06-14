@@ -60,6 +60,11 @@ export default async function ProductPage({ params }: ProductPageProps) {
     ? STOCK_STATUS_LABELS[product.stockStatus]
     : product.stockStatus;
 
+  const galleryUrls =
+    product.images.length > 0
+      ? product.images.map((image) => image.url)
+      : [product.imageUrl];
+
   return (
     <div className="mx-auto max-w-site px-4 py-8 pb-24 sm:px-6 md:pb-8">
       <PageViewTracker
@@ -69,7 +74,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       />
       <StructuredData
         data={[
-          productJsonLd(store, product),
+          productJsonLd(store, product, galleryUrls),
           breadcrumbJsonLd(store, [
             { name: "Home", path: "/" },
             { name: product.category.name, path: `/c/${product.category.slug}` },
@@ -88,14 +93,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
       />
 
       <div className="mt-6 grid gap-10 lg:grid-cols-2">
-        <ProductGallery
-          images={
-            product.images.length > 0
-              ? product.images.map((image) => image.url)
-              : [product.imageUrl]
-          }
-          alt={product.imageAlt}
-        />
+        <ProductGallery images={galleryUrls} alt={product.imageAlt} />
 
         <div>
           <p className="text-sm font-medium uppercase tracking-wide text-ink/50">
