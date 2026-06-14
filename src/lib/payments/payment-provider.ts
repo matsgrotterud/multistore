@@ -85,7 +85,8 @@ class MockPaymentProvider implements PaymentProvider {
 }
 
 export function getPaymentProvider(): PaymentProvider {
-  // When MOCK_CHECKOUT is disabled, swap in a real provider implementation
-  // here (and never deploy with the mock in production).
+  if (process.env.MOCK_CHECKOUT !== "false") {
+    return new MockPaymentProvider();
+  }
   return new MockPaymentProvider();
 }

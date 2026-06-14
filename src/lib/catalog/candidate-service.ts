@@ -375,8 +375,9 @@ function normalizeStockStatus(value: string): "IN_STOCK" | "LOW_STOCK" | "OUT_OF
   return "IN_STOCK";
 }
 
-function fulfillmentModeForCandidate(providerKey: string): "AFFILIATE" | "MANUAL" | "MOCK" {
+function fulfillmentModeForCandidate(providerKey: string): "AFFILIATE" | "MANUAL" | "MOCK" | "DROPSHIP" {
   if (providerKey === "mock") return "MOCK";
+  if (providerKey === "cj" || providerKey === "doba") return "DROPSHIP";
   if (providerKey === "ebay" || providerKey === "amazon" || providerKey === "aliexpress" || providerKey === "temu") return "AFFILIATE";
   return "MANUAL";
 }

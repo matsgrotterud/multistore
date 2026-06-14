@@ -41,11 +41,16 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
       <h1 className="mt-4 text-3xl font-bold text-ink">Checkout</h1>
       {isMockCheckout && (
         <p className="mt-2 inline-block rounded-theme bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900">
-          Demo mode: no payment is processed and no real order is created.
+          Demo mode: checkout runs without payment. Orders are created and routed through mock
+          suppliers.
         </p>
       )}
       <div className="mt-6">
-        <CheckoutForm storeSlug={store.slug} locale={store.locale} />
+        <CheckoutForm
+          storeSlug={store.slug}
+          locale={store.locale}
+          mockCheckout={isMockCheckout}
+        />
       </div>
     </div>
   );

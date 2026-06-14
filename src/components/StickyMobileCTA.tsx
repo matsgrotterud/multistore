@@ -1,6 +1,6 @@
 "use client";
 
-import { AddToCartButton } from "@/components/AddToCartButton";
+import { ProductPurchaseActions } from "@/components/ProductPurchaseActions";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
 import type { ClientProduct } from "@/lib/types";
 
@@ -10,11 +10,15 @@ import type { ClientProduct } from "@/lib/types";
  */
 export function StickyMobileCTA({
   product,
+  storeSlug,
   locale,
 }: {
   product: ClientProduct;
+  storeSlug: string;
   locale: string;
 }) {
+  const isAffiliate = product.fulfillmentMode === "AFFILIATE";
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-ink/10 bg-white/95 px-4 py-3 backdrop-blur md:hidden">
       <div className="flex items-center justify-between gap-3">
@@ -24,7 +28,19 @@ export function StickyMobileCTA({
             {formatCurrency(product.price, product.currency, locale)}
           </p>
         </div>
-        <AddToCartButton product={product} size="sm" />
+        {!isAffiliate && product.checkoutAvailable && (
+          <ProductPurchaseActions product={product} storeSlug={storeSlug} size="sm" />
+        )}
+        {isAffiliate && product.affiliateUrl && (
+          <a
+            href={product.affiliateUrl}
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+            className="btn-primary shrink-0 px-4 py-2 text-xs"
+          >
+            View deal
+          </a>
+        )}
       </div>
     </div>
   );

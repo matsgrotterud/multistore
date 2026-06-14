@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddToCartButton } from "@/components/AddToCartButton";
+import { ProductPurchaseActions } from "@/components/ProductPurchaseActions";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FAQAccordion } from "@/components/FAQAccordion";
 import { PageViewTracker } from "@/components/PageViewTracker";
@@ -172,7 +172,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
           </dl>
 
           <div className="mt-6 hidden md:block">
-            <AddToCartButton product={clientProduct} fullWidth />
+            <ProductPurchaseActions product={clientProduct} storeSlug={store.slug} fullWidth />
           </div>
 
           <p className="mt-4 text-sm leading-6 text-ink/75">
@@ -303,7 +303,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
         </section>
       )}
 
-      <StickyMobileCTA product={clientProduct} locale={store.locale} />
+      <StickyMobileCTA product={clientProduct} storeSlug={store.slug} locale={store.locale} />
     </div>
   );
 }

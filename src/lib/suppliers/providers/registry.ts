@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { alibabaProvider } from "@/lib/suppliers/providers/alibaba-provider";
 import { aliexpressProvider } from "@/lib/suppliers/providers/aliexpress-provider";
 import { amazonProvider } from "@/lib/suppliers/providers/amazon-provider";
+import { cjProvider } from "@/lib/suppliers/providers/cj-provider";
+import { dobaProvider } from "@/lib/suppliers/providers/doba-provider";
 import { ebayProvider } from "@/lib/suppliers/providers/ebay-provider";
 import { mockCommerceProvider } from "@/lib/suppliers/providers/mock-provider";
 import { temuProvider } from "@/lib/suppliers/providers/temu-provider";
@@ -11,6 +13,8 @@ import { toJson } from "@/lib/utils/json";
 
 const providers: CommerceProvider[] = [
   mockCommerceProvider,
+  cjProvider,
+  dobaProvider,
   ebayProvider,
   aliexpressProvider,
   temuProvider,

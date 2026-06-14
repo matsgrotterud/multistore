@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Product } from "@prisma/client";
-import { AddToCartButton } from "@/components/AddToCartButton";
+import { ProductCardCta } from "@/components/ProductCardCta";
 import { PriceBlock } from "@/components/PriceBlock";
 import { RatingDisplay } from "@/components/RatingDisplay";
 import { toClientProduct } from "@/lib/stores/queries";
@@ -61,7 +61,7 @@ export function ProductCard({
         <p className="text-xs text-ink/60">
           Ships in {product.shippingDaysMin}–{product.shippingDaysMax} business days
         </p>
-        <AddToCartButton product={client} size="sm" fullWidth />
+        <ProductCardCta product={client} />
       </div>
     </article>
   );

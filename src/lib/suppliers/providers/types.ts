@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const providerKeys = [
   "mock",
+  "cj",
+  "doba",
   "ebay",
   "aliexpress",
   "temu",

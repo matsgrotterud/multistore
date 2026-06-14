@@ -163,7 +163,15 @@ export function toClientProduct(product: Product): ClientProduct {
     stockStatus: product.stockStatus,
     shippingDaysMin: product.shippingDaysMin,
     shippingDaysMax: product.shippingDaysMax,
+    countryOfOrigin: product.countryOfOrigin,
     useCases: parseStringArray(product.useCases),
     productScore: product.productScore,
+    fulfillmentMode: product.fulfillmentMode,
+    affiliateUrl: product.affiliateUrl,
+    providerKey: product.providerKey,
+    checkoutAvailable:
+      product.fulfillmentMode !== "AFFILIATE" &&
+      (product.fulfillmentMode !== "MANUAL" ||
+        process.env.MANUAL_FULFILLMENT_ENABLED === "true"),
   };
 }

@@ -57,6 +57,11 @@ export interface ClientProduct {
   stockStatus: string;
   shippingDaysMin: number;
   shippingDaysMax: number;
+  countryOfOrigin: string | null;
   useCases: string[];
   productScore: number;
+  fulfillmentMode: string;
+  affiliateUrl: string | null;
+  providerKey: string | null;
+  checkoutAvailable: boolean;
 }

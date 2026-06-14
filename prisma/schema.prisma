@@ -410,6 +410,9 @@ model Order {
   status              String   @default("DRAFT")
   paymentStatus       String   @default("UNPAID")
   fulfillmentStatus   String   @default("NOT_STARTED")
+  paymentProvider     String?
+  stripePaymentIntentId String? @unique
+  paymentError        String?
   currency            String
   subtotal            Float
   shippingTotal       Float    @default(0)

@@ -8,6 +8,7 @@ export const ANALYTICS_EVENTS = [
   "page_view",
   "product_view",
   "add_to_cart",
+  "affiliate_click",
   "begin_checkout",
   "checkout_success",
   "quiz_start",
