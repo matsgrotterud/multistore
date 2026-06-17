@@ -29,6 +29,7 @@ export async function importProductsForStore(options: {
   categorySlug: string;
   query: string;
   queryVariants?: string[];
+  negativeKeywords?: string[];
   providerKeys?: Array<ProviderKey | string>;
   adapter?: SupplierAdapter;
   targetMargin?: number;
@@ -106,7 +107,12 @@ export async function importProductsForStore(options: {
     rejected,
     providerKeys: [...discoveredByProvider],
   };
-  for (const candidate of candidates.filter((candidate) => isRelevantCandidate(candidate, queries, store.niche))) {
+  const negativeKeywords = (options.negativeKeywords ?? [])
+    .map((keyword) => keyword.toLowerCase().trim())
+    .filter(Boolean);
+  for (const candidate of candidates.filter((candidate) =>
+    isRelevantCandidate(candidate, queries, store.niche, negativeKeywords)
+  )) {
     await approveCandidate(candidate.id);
     const productId = await importCandidateToProduct(candidate.id);
     const product = await prisma.product.findUnique({
@@ -148,9 +154,14 @@ function uniqueQueries(values: string[]): string[] {
 function isRelevantCandidate(
   candidate: { titleRaw: string; descriptionRaw: string | null },
   queries: string[],
-  niche: string
+  niche: string,
+  negativeKeywords: string[] = []
 ): boolean {
   const haystack = `${candidate.titleRaw} ${candidate.descriptionRaw ?? ""}`.toLowerCase();
+  // Explicit/vertical negative keywords reject obviously wrong verticals.
+  if (negativeKeywords.some((keyword) => haystack.includes(keyword))) {
+    return false;
+  }
   if (isChildToyNiche(niche) && /\b(pet|cat|dog|bird|parrot|hamster|rabbit)\b/i.test(haystack)) {
     return false;
   }

@@ -180,8 +180,14 @@ interface BlueprintFormValues {
   domain: string;
   testOnly: boolean;
   niche: string;
-  audience: string;
-  keywords: string;
+  targetCustomer: string;
+  endUser: string;
+  ageRange: string;
+  supplierSearchHints: string;
+  negativeKeywords: string;
+  categoryHints: string;
+  pricePositioning: string;
+  productCountGoal: string;
   brandVoice: string;
   locale: string;
   country: string;
@@ -191,11 +197,14 @@ function buildBlueprintInput(values: BlueprintFormValues) {
   return {
     domain: values.testOnly ? undefined : values.domain || undefined,
     niche: values.niche,
-    audience: values.audience,
-    productKeywords: values.keywords
-      .split(",")
-      .map((keyword) => keyword.trim())
-      .filter(Boolean),
+    targetCustomer: values.targetCustomer || undefined,
+    endUser: values.endUser || undefined,
+    ageRange: values.ageRange || undefined,
+    supplierSearchHints: values.supplierSearchHints,
+    negativeKeywords: values.negativeKeywords,
+    categoryHints: values.categoryHints,
+    pricePositioning: values.pricePositioning || "value",
+    productCountGoal: values.productCountGoal || "standard",
     brandVoice: values.brandVoice || "clear, honest, practical",
     locale: values.locale || "en-US",
     country: values.country || "United States",
@@ -215,6 +224,12 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
         <div>
           <dt className="font-medium text-slate-800">Categories</dt>
           <dd>{blueprint.categories.map((category) => category.name).join(", ")}</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="font-medium text-slate-800">Import queries</dt>
+          <dd className="font-mono text-[11px]">
+            {blueprint.productImportQueries.slice(0, 8).join(" · ")}
+          </dd>
         </div>
         <div className="sm:col-span-2">
           <dt className="font-medium text-slate-800">SEO title</dt>
@@ -248,8 +263,14 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
         <li>
           {result.categoriesCreated} categories · {result.productsDiscovered} discovered ·{" "}
           {result.candidatesRejected} rejected · {result.productsImported} imported ·{" "}
-          {result.productsPublished} published · {mediaCount} images · {result.guidesCreated} guide
+          {result.productsPublished} published · {result.productsWithoutMedia} without media ·{" "}
+          {mediaCount} images · {result.guidesCreated} guide
         </li>
+        {result.importQueries.length > 0 && (
+          <li className="font-mono text-[11px]">
+            queries: {result.importQueries.slice(0, 8).join(" · ")}
+          </li>
+        )}
         {result.plannedDomain ? (
           <li>
             Planned domain: <span className="font-mono">{result.plannedDomain}</span> (not connected
@@ -425,8 +446,14 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
     domain: "",
     testOnly: true,
     niche: "",
-    audience: "",
-    keywords: "",
+    targetCustomer: "",
+    endUser: "",
+    ageRange: "",
+    supplierSearchHints: "",
+    negativeKeywords: "",
+    categoryHints: "",
+    pricePositioning: "value",
+    productCountGoal: "standard",
     brandVoice: "warm, honest",
     locale: "nb-NO",
     country: "Norway",
@@ -458,8 +485,14 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
       domain: String(data.get("domain") ?? ""),
       testOnly: data.get("testOnly") === "on",
       niche: String(data.get("niche") ?? ""),
-      audience: String(data.get("audience") ?? ""),
-      keywords: String(data.get("keywords") ?? ""),
+      targetCustomer: String(data.get("targetCustomer") ?? ""),
+      endUser: String(data.get("endUser") ?? ""),
+      ageRange: String(data.get("ageRange") ?? ""),
+      supplierSearchHints: String(data.get("supplierSearchHints") ?? ""),
+      negativeKeywords: String(data.get("negativeKeywords") ?? ""),
+      categoryHints: String(data.get("categoryHints") ?? ""),
+      pricePositioning: String(data.get("pricePositioning") ?? "value"),
+      productCountGoal: String(data.get("productCountGoal") ?? "standard"),
       brandVoice: String(data.get("brandVoice") ?? ""),
       locale: String(data.get("locale") ?? ""),
       country: String(data.get("country") ?? ""),
@@ -571,43 +604,142 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 Live.
               </p>
             </div>
-            <div>
+            <div className="lg:col-span-2">
               <label htmlFor="gen-niche" className={labelClass}>
-                Niche *
+                Store idea / niche *
               </label>
               <input
                 id="gen-niche"
                 name="niche"
                 required
                 className={inputClass}
-                placeholder="jaw relaxation gummies"
+                placeholder="fish bait · green running shoes · vegan dog toys"
                 defaultValue={formValues.niche}
               />
+              <p className="mt-1 text-xs text-slate-500">What the store is about.</p>
             </div>
             <div>
-              <label htmlFor="gen-audience" className={labelClass}>
-                Audience *
+              <label htmlFor="gen-target" className={labelClass}>
+                Target customer
               </label>
               <input
-                id="gen-audience"
-                name="audience"
-                required
+                id="gen-target"
+                name="targetCustomer"
                 className={inputClass}
-                placeholder="young adults 18–45"
-                defaultValue={formValues.audience}
+                placeholder="casual anglers · dog owners"
+                defaultValue={formValues.targetCustomer}
               />
+              <p className="mt-1 text-xs text-slate-500">
+                Who buys. Influences tone — not inserted into product titles.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="gen-enduser" className={labelClass}>
+                End user
+              </label>
+              <input
+                id="gen-enduser"
+                name="endUser"
+                className={inputClass}
+                placeholder="adults · dogs · toddlers"
+                defaultValue={formValues.endUser}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Only used when it matters for product selection.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="gen-age" className={labelClass}>
+                Relevant age range
+              </label>
+              <input
+                id="gen-age"
+                name="ageRange"
+                className={inputClass}
+                placeholder="ages 3–6 (kids products only)"
+                defaultValue={formValues.ageRange}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Only if age is <strong>product-relevant</strong> (e.g. kids toys). Never used for
+                buyer demographics.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="gen-price" className={labelClass}>
+                Price positioning
+              </label>
+              <select
+                id="gen-price"
+                name="pricePositioning"
+                className={inputClass}
+                defaultValue={formValues.pricePositioning}
+              >
+                <option value="budget">Budget</option>
+                <option value="value">Value</option>
+                <option value="premium">Premium</option>
+                <option value="mixed">Mixed</option>
+              </select>
             </div>
             <div className="lg:col-span-2">
-              <label htmlFor="gen-keywords" className={labelClass}>
-                Product keywords (comma-separated)
+              <label htmlFor="gen-hints" className={labelClass}>
+                Supplier search hints
               </label>
               <input
-                id="gen-keywords"
-                name="keywords"
+                id="gen-hints"
+                name="supplierSearchHints"
                 className={inputClass}
-                placeholder="gummy, jaw relief, stress chew"
-                defaultValue={formValues.keywords}
+                placeholder="fishing lure, soft bait, carp rig"
+                defaultValue={formValues.supplierSearchHints}
               />
+              <p className="mt-1 text-xs text-slate-500">
+                Used only for product discovery. These will <strong>not</strong> become category
+                names.
+              </p>
+            </div>
+            <div className="lg:col-span-2">
+              <label htmlFor="gen-negative" className={labelClass}>
+                Avoid these products / terms
+              </label>
+              <input
+                id="gen-negative"
+                name="negativeKeywords"
+                className={inputClass}
+                placeholder="toy, doll, aquarium decoration"
+                defaultValue={formValues.negativeKeywords}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Used to avoid irrelevant supplier matches.
+              </p>
+            </div>
+            <div className="lg:col-span-2">
+              <label htmlFor="gen-categoryhints" className={labelClass}>
+                Optional category ideas
+              </label>
+              <input
+                id="gen-categoryhints"
+                name="categoryHints"
+                className={inputClass}
+                placeholder="leave empty to let AI generate shopper-friendly categories"
+                defaultValue={formValues.categoryHints}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Leave empty to auto-generate categories from the niche.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="gen-count" className={labelClass}>
+                Product count goal
+              </label>
+              <select
+                id="gen-count"
+                name="productCountGoal"
+                className={inputClass}
+                defaultValue={formValues.productCountGoal}
+              >
+                <option value="small">Small demo (6–8)</option>
+                <option value="standard">Standard (12–18)</option>
+                <option value="broad">Broad catalog (24+ later)</option>
+              </select>
             </div>
             <div>
               <label htmlFor="gen-voice" className={labelClass}>

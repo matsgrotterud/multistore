@@ -1,12 +1,17 @@
 import { prisma } from "@/lib/db";
-import { generateStoreBlueprint } from "@/lib/ai/store-blueprint";
+import {
+  generateStoreBlueprint,
+  storeBlueprintInputSchema,
+} from "@/lib/ai/store-blueprint";
 import { createStoreFromBlueprint } from "@/lib/stores/create-from-blueprint";
 
 /**
- * Headless generator: runs the exact same blueprint + import pipeline the admin
- * action uses, without the admin auth wrapper. Proof/repro tool only.
+ * Headless generator: runs the EXACT same blueprint + import pipeline the admin
+ * action uses (same Zod schema + createStoreFromBlueprint), without the admin
+ * auth wrapper. Proof/repro tool only.
  *
- *   dotenv -e .env.local -o -- tsx scripts/generate-store.ts --niche="vegan dog toys"
+ *   dotenv -e .env.local -o -- tsx scripts/generate-store.ts \
+ *     --niche="vegan dog toys" --targetCustomer="dog owners" --endUser=dogs
  */
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -18,20 +23,27 @@ function arg(name: string, fallback?: string): string | undefined {
 
 async function main() {
   const niche = arg("niche", "vegan dog toys")!;
-  const input = {
+  // Build the same raw input shape the admin form submits, then parse it through
+  // the shared schema so normalization/age-guardrails/derivation are identical.
+  const rawInput = {
     domain: undefined,
     niche,
-    audience: arg("audience", "eco-conscious pet owners")!,
-    productKeywords: (arg("keywords", "") ?? "")
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean),
+    targetCustomer: arg("targetCustomer", arg("audience")),
+    endUser: arg("endUser"),
+    ageRange: arg("ageRange"),
+    supplierSearchHints: arg("supplierSearchHints", arg("keywords", "")),
+    negativeKeywords: arg("negativeKeywords", ""),
+    categoryHints: arg("categoryHints", ""),
+    pricePositioning: arg("pricePositioning", "value")!,
+    productCountGoal: arg("productCountGoal", "standard")!,
     brandVoice: arg("brandVoice", "warm, honest, practical")!,
     locale: arg("locale", "en-US")!,
     country: arg("country", "United States")!,
   };
+  const input = storeBlueprintInputSchema.parse(rawInput);
 
   console.log(`Generating store for niche="${niche}" ...`);
+  console.log(`  publicAudience="${input.audience}" categoryHints=${JSON.stringify(input.categoryHints)} goal=${input.productCountGoal}`);
   const started = Date.now();
   const { blueprint, guardrails } = await generateStoreBlueprint(input);
   console.log(`blueprint: ${blueprint.brandName} (slug=${blueprint.storeSlug}) guardrails.passed=${guardrails.passed}`);

@@ -1,3 +1,7 @@
+import {
+  buildStoreImportQueries,
+  deriveStoreCategories,
+} from "@/lib/ai/category-strategy";
 import type {
   AiProvider,
   CategoryPlan,
@@ -58,17 +62,30 @@ export class MockAiProvider implements AiProvider {
     const seed = hash(domainKey + input.niche);
     const nicheTitle = titleCase(input.niche);
     const brandName = `${nicheTitle.split(" ")[0]} ${["Haven", "Hub", "Studio", "Works", "Atelier", "Supply"][seed % 6]}`;
-    const keywords = input.productKeywords.length > 0 ? input.productKeywords : [input.niche];
+
+    // Categories come from the deterministic strategy (categoryHints -> vertical
+    // detector -> merchandising fallback) — never from raw supplier keywords.
+    const categories = deriveStoreCategories({
+      niche: input.niche,
+      endUser: input.endUser,
+      categoryHints: input.categoryHints,
+      supplierSearchHints: input.supplierSearchHints,
+      negativeKeywords: input.negativeKeywords,
+      audience: input.audience,
+    });
+    const productImportQueries = buildStoreImportQueries({
+      niche: input.niche,
+      endUser: input.endUser,
+      categoryHints: input.categoryHints,
+      supplierSearchHints: input.supplierSearchHints,
+      negativeKeywords: input.negativeKeywords,
+    });
 
     return {
       storeSlug: slugify(input.niche),
       brandName,
       tagline: `${nicheTitle} chosen for ${input.audience}, explained honestly.`,
-      categories: keywords.slice(0, 4).map((keyword) => ({
-        slug: slugify(keyword),
-        name: titleCase(keyword),
-        description: `Curated ${keyword} picks for ${input.audience}, compared on real specs, shipping time and value.`,
-      })),
+      categories,
       homepageSections: [
         "Hero with niche value proposition",
         "Trust bar (shipping window, returns, support)",
@@ -107,7 +124,7 @@ export class MockAiProvider implements AiProvider {
         "Can I cancel or change my order?",
         "How do I contact support?",
       ],
-      productImportQueries: keywords.map((keyword) => `${keyword} best sellers`),
+      productImportQueries,
       themeColors: PALETTES[seed % PALETTES.length],
       trustCopy: [
         `Every product at ${brandName} is reviewed against our quality checklist before it appears in the catalog.`,

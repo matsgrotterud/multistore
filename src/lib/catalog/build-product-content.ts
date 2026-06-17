@@ -1,5 +1,6 @@
 import { generateProductCopy } from "@/lib/ai/store-blueprint";
 import { checkContent } from "@/lib/ai/content-guardrails";
+import { isAgeRelevantNiche, stripBuyerAgeFromPublicCopy } from "@/lib/ai/audience-guardrails";
 import type { FaqItem, SpecItem } from "@/lib/types";
 
 /**
@@ -149,9 +150,12 @@ export async function buildImportedProductContent(
   });
   const specs = dedupeSpecs(derivedSpecs);
 
-  const subtitle =
-    copy.subtitle ||
-    `${input.categoryName} chosen for ${input.audience}`;
+  // Defence-in-depth: even though store.audience is sanitized at generation,
+  // strip any buyer-age leakage here for non-age-relevant niches.
+  const safeAudience = isAgeRelevantNiche({ niche: input.niche })
+    ? input.audience
+    : stripBuyerAgeFromPublicCopy(input.audience);
+  const subtitle = copy.subtitle || `${input.categoryName} chosen for ${safeAudience}`;
 
   const seoTitle = (copy.seoTitle || `${title} | ${input.storeName}`).slice(0, 65);
   const seoDescription = (copy.seoDescription || copy.shortDescription).slice(0, 155);

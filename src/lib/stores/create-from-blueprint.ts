@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
-import type { StoreBlueprint, StoreBlueprintInput } from "@/lib/ai/types";
+import type { StoreBlueprint, StoreBlueprintInput, ProductCountGoal } from "@/lib/ai/types";
 import { generateBuyingGuideOutline } from "@/lib/ai/store-blueprint";
+import {
+  buildCategoryImportQueries,
+  deriveNegativeKeywords,
+} from "@/lib/ai/category-strategy";
 import {
   defaultPrivacyPolicy,
   defaultTermsOfSale,
@@ -54,9 +58,30 @@ export interface CreateStoreFromBlueprintResult {
   rejectionReasons: string[];
   guidesCreated: number;
   products: GeneratedProductSummary[];
+  /** Supplier import queries used (store-wide), for admin visibility. */
+  importQueries: string[];
+  /** Imported products that ended up with zero images. */
+  productsWithoutMedia: number;
   /** Non-fatal issues during import (per-category failures, etc.). */
   warnings: string[];
 }
+
+/**
+ * Bounded, configurable import targets per product-count goal. Sync import stays
+ * demo-fast; "broad" catalogs are imported at the standard bound for now and a
+ * note is surfaced (background expansion is a future step).
+ */
+const IMPORT_GOALS: Record<
+  ProductCountGoal,
+  { maxCategories: number; perCategory: number; totalImport: number; minPublish: number }
+> = {
+  small: { maxCategories: 3, perCategory: 3, totalImport: 8, minPublish: 6 },
+  standard: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 6 },
+  broad: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 6 },
+};
+
+/** Upper bound on stored media per product (informational; ingestion-side cap). */
+export const MAX_MEDIA_PER_PRODUCT = 8;
 
 /**
  * Provider keys used for generated-store imports. Mirrors the resolution in
@@ -129,34 +154,6 @@ function buildStoreSettings(
   };
 }
 
-function buildProductQueryVariants(input: StoreBlueprintInput, categoryName: string): string[] {
-  const niche = input.niche.toLowerCase();
-  const variants = [
-    input.niche,
-    `${input.niche} ${categoryName}`,
-    categoryName,
-    ...input.productKeywords.map((keyword) => `${keyword} ${input.niche}`),
-  ];
-
-  if (/(toy|toys|child|children|kid|kids)/i.test(niche)) {
-    variants.push(
-      "wooden toys",
-      "educational toys",
-      "montessori toys",
-      "stem toys",
-      "puzzle toys"
-    );
-  }
-  if (/(pet|groom|dog|cat)/i.test(niche)) {
-    variants.push("pet grooming brush", "pet comb", "dog grooming", "cat grooming brush");
-  }
-  if (/(hiking|camp|outdoor|backpack)/i.test(niche)) {
-    variants.push("hiking backpack", "camping gear", "trekking accessories");
-  }
-
-  return variants;
-}
-
 function storeInfoForPolicies(
   slug: string,
   blueprint: StoreBlueprint,
@@ -213,7 +210,16 @@ export async function createStoreFromBlueprint(
     currency
   );
 
-  const categories = blueprint.categories.slice(0, 4);
+  const goal = IMPORT_GOALS[input.productCountGoal] ?? IMPORT_GOALS.standard;
+  const negativeKeywords = deriveNegativeKeywords({
+    niche: input.niche,
+    endUser: input.endUser,
+    categoryHints: input.categoryHints,
+    supplierSearchHints: input.supplierSearchHints,
+    negativeKeywords: input.negativeKeywords,
+  });
+
+  const categories = blueprint.categories.slice(0, goal.maxCategories);
   if (categories.length === 0) {
     categories.push({
       slug: slugify(input.niche) || "catalog",
@@ -306,10 +312,16 @@ export async function createStoreFromBlueprint(
   let productsDiscovered = 0;
   let candidatesRejected = 0;
   const warnings: string[] = [];
+  const importQueriesUsed = new Set<string>();
   // Bound synchronous import so generation stays demo-fast and never appears to
   // hang. Categories are still all created; products fill until the budget.
-  const IMPORT_BUDGET = 8;
-  const PER_CATEGORY_LIMIT = 3;
+  const IMPORT_BUDGET = goal.totalImport;
+  const PER_CATEGORY_LIMIT = goal.perCategory;
+  if (input.productCountGoal === "broad") {
+    warnings.push(
+      "Broad catalog requested: imported up to the demo-safe bound synchronously. Re-run import or background expansion can add more later."
+    );
+  }
 
   for (let index = 0; index < categories.length; index++) {
     const categorySeed = categories[index];
@@ -328,16 +340,25 @@ export async function createStoreFromBlueprint(
     });
 
     if (importProducts && productsImported < IMPORT_BUDGET) {
-      const query =
-        blueprint.productImportQueries[index] ??
-        blueprint.productImportQueries[0] ??
-        categorySeed.name;
+      const categoryQueries = buildCategoryImportQueries(
+        {
+          niche: input.niche,
+          endUser: input.endUser,
+          categoryHints: input.categoryHints,
+          supplierSearchHints: input.supplierSearchHints,
+          negativeKeywords,
+        },
+        categorySeed.name
+      );
+      const query = categoryQueries[0] ?? categorySeed.name;
+      categoryQueries.forEach((value) => importQueriesUsed.add(value));
       try {
         const imported = await importProductsForStore({
           storeSlug: store.slug,
           categorySlug: category.slug,
           query,
-          queryVariants: buildProductQueryVariants(input, categorySeed.name),
+          queryVariants: categoryQueries.slice(1),
+          negativeKeywords,
           targetMargin: 0.35,
           limit: PER_CATEGORY_LIMIT,
         });
@@ -358,11 +379,19 @@ export async function createStoreFromBlueprint(
     // Preview stores are noindexed via launchStatus, so it is safe to publish
     // every imported product that has real stored media. Quality gates already
     // filtered junk at discovery (ENRICHED requires score >= 50 and >= 2 media).
+    // Products with zero images are left unpublished (handled below).
     const publishResult = await prisma.product.updateMany({
       where: { storeId: store.id, mediaStatus: "OK", isPublished: false },
       data: { isPublished: true },
     });
     productsPublished += publishResult.count;
+  }
+
+  if (importProducts && productsImported > 0 && productsPublished < goal.minPublish) {
+    warnings.push(
+      `Only ${productsPublished} of ${productsImported} imported products were publishable (target ${goal.minPublish}). ` +
+        `Products without usable stored media stay unpublished — see rejection reasons or re-run import.`
+    );
   }
 
   const faqBody = JSON.stringify(
@@ -506,6 +535,8 @@ export async function createStoreFromBlueprint(
     rejectionReasons,
     guidesCreated,
     products,
+    importQueries: Array.from(importQueriesUsed).slice(0, 12),
+    productsWithoutMedia: products.filter((product) => product.imageCount === 0).length,
     warnings,
   };
 }

@@ -5,15 +5,40 @@
  * All provider output must pass content-guardrails.ts before publication.
  */
 
+export type PricePositioning = "budget" | "value" | "premium" | "mixed";
+export type ProductCountGoal = "small" | "standard" | "broad";
+
 export interface StoreBlueprintInput {
   /** Planned production domain. Optional — preview works without one. */
   domain?: string;
+  /** What the store is about, e.g. "fish bait". Required. */
   niche: string;
+  /**
+   * Sanitized, public-safe audience phrase (no numeric ages). Derived from
+   * targetCustomer/endUser by the schema; downstream copy may interpolate it.
+   */
   audience: string;
+  /** Buyer persona, e.g. "casual anglers". Influences positioning/tone only. */
+  targetCustomer?: string;
+  /** Who uses the product if different from buyer, e.g. "dogs", "toddlers". */
+  endUser?: string;
+  /** Only public-facing when product-relevant (kids/baby). Never buyer age. */
+  ageRange?: string;
+  /** Legacy alias, merged into supplierSearchHints. Never becomes a category. */
   productKeywords: string[];
+  /** Supplier discovery hints. Influence queries only, not category names. */
+  supplierSearchHints: string[];
+  /** Terms to avoid in supplier matches. */
+  negativeKeywords: string[];
+  /** Optional explicit category ideas. Empty = AI/vertical-derived categories. */
+  categoryHints: string[];
+  pricePositioning: PricePositioning;
+  productCountGoal: ProductCountGoal;
   brandVoice: string;
   locale: string;
   country: string;
+  /** Optional currency override; otherwise derived from locale/country. */
+  currency?: string;
 }
 
 export interface StoreBlueprint {

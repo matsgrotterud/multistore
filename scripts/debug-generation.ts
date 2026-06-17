@@ -5,6 +5,18 @@ import { getMediaStorageSafetyReport } from "@/lib/storage/media-storage-safety"
 const LOCAL_UPLOAD_PREFIX = "/uploads/dev-media";
 
 /**
+ * Detect a leaked BUYER age demographic in public copy (e.g. "fish bait for
+ * 40-60"). Ignores single-digit kids' age ranges like "ages 3-6", which are
+ * legitimate end-user ages for kids products.
+ */
+function buyerAgeLeak(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const match = text.match(/\b(?:for\s+|ages?\s+|aged\s+)\s*(\d{1,2})\s*(?:[-–—]|to)\s*(\d{1,2})\b/i);
+  if (!match) return null;
+  return Math.max(Number(match[1]), Number(match[2])) >= 13 ? match[0] : null;
+}
+
+/**
  * Generator/import diagnostic. Explains, for a store, exactly where the
  * niche -> blueprint -> discovery -> import -> publish chain succeeded or broke.
  *
@@ -79,11 +91,15 @@ async function reportStore(slug: string) {
   const mediaAssetRows = products.reduce((n, p) => n + p._count.mediaAssets, 0);
 
   const localMediaProducts = products.filter((p) => p.imageUrl?.startsWith(LOCAL_UPLOAD_PREFIX));
+  const blobMediaProducts = products.filter((p) =>
+    p.imageUrl?.includes(".public.blob.vercel-storage.com/")
+  );
 
   console.log("\n  --- counts ---");
   console.log(`  categories:            ${categories.length}  [${categories.map((c) => c.slug).join(", ")}]`);
   console.log(`  products:              ${products.length}`);
   console.log(`  published products:    ${published.length}`);
+  console.log(`  Blob imageUrl:         ${blobMediaProducts.length}`);
   console.log(`  LOCAL imageUrl (/uploads/dev-media): ${localMediaProducts.length}`);
   if (localMediaProducts.length > 0) {
     console.log(
@@ -135,6 +151,32 @@ async function reportStore(slug: string) {
       );
       console.log(`        /s/${store.slug}/c/${p.category?.slug ?? "?"}/p/${p.slug}`);
     }
+  }
+
+  // Public-copy buyer-age leak assertion (Generator V2 guardrail).
+  console.log("\n  --- PUBLIC COPY AGE CHECK ---");
+  const leaks: string[] = [];
+  const check = (label: string, text: string | null | undefined) => {
+    const hit = buyerAgeLeak(text);
+    if (hit) leaks.push(`${label}: "${hit}" in ${JSON.stringify(text)}`);
+  };
+  check("store.positioning", store.positioning);
+  check("store.valueProposition", store.valueProposition);
+  check("store.audience", store.audience);
+  for (const c of categories) {
+    check(`category[${c.slug}].name`, c.name);
+    check(`category[${c.slug}].seoTitle`, c.seoTitle);
+  }
+  for (const p of products) {
+    check(`product[${p.slug}].title`, p.title);
+    check(`product[${p.slug}].subtitle`, p.subtitle);
+    check(`product[${p.slug}].seoTitle`, p.seoTitle);
+  }
+  if (leaks.length === 0) {
+    console.log("   OK — no buyer-age phrases in public titles/categories/SEO");
+  } else {
+    console.log(`   !! ${leaks.length} BUYER-AGE LEAK(S) FOUND:`);
+    for (const leak of leaks) console.log(`     - ${leak}`);
   }
 
   // Reason chain for zero products
