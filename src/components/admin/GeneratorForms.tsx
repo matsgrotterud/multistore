@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { StoreBlueprint } from "@/lib/ai/types";
 import type { GuardrailReport } from "@/lib/ai/content-guardrails";
 import {
@@ -71,6 +71,111 @@ const inputClass =
   "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none";
 const labelClass = "mb-1 block text-sm font-medium text-slate-700";
 
+const inlineSpinnerClass =
+  "h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white";
+
+/**
+ * Honest, generic progressive labels. The backend runs synchronously and does
+ * not report step-by-step progress, so these are phrased as "what may be
+ * happening now" and never claim a specific step finished.
+ */
+const STATUS_MESSAGES = [
+  "Creating the store blueprint",
+  "Building categories and content",
+  "Searching supplier products",
+  "Fetching product details",
+  "Importing product media",
+  "Creating product pages and variants",
+  "Preparing preview links",
+] as const;
+
+/**
+ * Live progress panel shown only while generation is pending. Mounts on submit
+ * and unmounts on completion, so its timer and message rotation reset
+ * automatically each run.
+ */
+function GenerationProgress() {
+  const [seconds, setSeconds] = useState(0);
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    const tick = setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    const rotate = setInterval(
+      () => setMessageIndex((value) => (value + 1) % STATUS_MESSAGES.length),
+      3500
+    );
+    return () => clearInterval(rotate);
+  }, []);
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950"
+    >
+      <div className="flex items-center gap-3">
+        <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" />
+        <div className="flex flex-1 items-center justify-between gap-3">
+          <p className="font-semibold">Generating store…</p>
+          <p className="font-mono text-xs text-blue-700">Running for {seconds}s</p>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-blue-800">What is happening now may include:</p>
+        <p className="mt-1 flex items-center gap-2 text-sm">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-600" />
+          {STATUS_MESSAGES[messageIndex]}…
+        </p>
+        {/* Subtle indeterminate bar — no fake percentage. */}
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-500" />
+        </div>
+      </div>
+
+      <p className="mt-3 text-xs text-blue-800">
+        This can take 1–3 minutes when supplier media is imported.{" "}
+        <strong>Do not refresh this page while generation is running.</strong> Product discovery and
+        media import can take a little while.
+      </p>
+    </div>
+  );
+}
+
+function LaunchFailure({ error }: { error: string }) {
+  return (
+    <div
+      role="alert"
+      className="mt-4 rounded-xl border border-red-300 bg-red-50 p-5 text-sm text-red-950"
+    >
+      <p className="text-base font-bold">Generation failed</p>
+      <p className="mt-1 font-mono text-xs text-red-800">{error}</p>
+      <p className="mt-3 text-xs text-red-900">
+        The store may have been <strong>partially created</strong> (store, categories or some
+        products) before the error. Nothing is shown as published unless it succeeded.
+      </p>
+      <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs text-red-900">
+        <li>
+          Check the{" "}
+          <Link href="/admin/stores" className="font-semibold underline">
+            Stores page
+          </Link>{" "}
+          to see if a partial store exists.
+        </li>
+        <li>
+          Run <code className="rounded bg-red-100 px-1">pnpm run debug:generation:local -- --latest</code>{" "}
+          to see categories, candidates, rejection reasons and media counts.
+        </li>
+        <li>Adjust the niche / product keywords and try again.</li>
+      </ul>
+    </div>
+  );
+}
+
 interface BlueprintFormValues {
   domain: string;
   testOnly: boolean;
@@ -131,6 +236,7 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
 }
 
 function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
+  const mediaCount = result.products.reduce((total, product) => total + product.imageCount, 0);
   return (
     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
       <p className="text-lg font-bold">Store created — preview ready</p>
@@ -142,7 +248,7 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
         <li>
           {result.categoriesCreated} categories · {result.productsDiscovered} discovered ·{" "}
           {result.candidatesRejected} rejected · {result.productsImported} imported ·{" "}
-          {result.productsPublished} published · {result.guidesCreated} guide
+          {result.productsPublished} published · {mediaCount} images · {result.guidesCreated} guide
         </li>
         {result.plannedDomain ? (
           <li>
@@ -161,6 +267,18 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
             {result.productsDiscovered} candidates were discovered and {result.candidatesRejected}{" "}
             were rejected. The store, categories and content were still created — review the
             rejection reasons below or try a broader/more specific niche query, then re-run import.
+          </p>
+        </div>
+      )}
+
+      {result.productsImported > 0 && result.productsPublished === 0 && (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-semibold">
+            Store was created, but no products were published.
+          </p>
+          <p className="mt-1">
+            {result.productsImported} products were imported but none had usable stored media to
+            publish. Check supplier results / rejection reasons, then re-run import.
           </p>
         </div>
       )}
@@ -254,7 +372,55 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
   );
 }
 
-export function GeneratorForms() {
+export interface MediaSafetyProps {
+  dbIsRemote: boolean;
+  effectiveProvider: "local" | "vercel-blob";
+  unsafe: boolean;
+  overrideEnabled: boolean;
+}
+
+function EnvStatusPanel({ safety }: { safety: MediaSafetyProps }) {
+  const dbLabel = safety.dbIsRemote ? "remote" : "local";
+  const tone = safety.unsafe
+    ? "border-red-300 bg-red-50 text-red-950"
+    : safety.dbIsRemote && safety.effectiveProvider === "local"
+      ? "border-amber-300 bg-amber-50 text-amber-950"
+      : "border-slate-200 bg-slate-50 text-slate-700";
+
+  return (
+    <div className={`rounded-xl border p-4 text-sm ${tone}`}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium">
+        <span>
+          DB target: <strong className="uppercase">{dbLabel}</strong>
+        </span>
+        <span>
+          Media storage: <strong>{safety.effectiveProvider}</strong>
+        </span>
+        {safety.overrideEnabled && (
+          <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-800">
+            ALLOW_REMOTE_DB_LOCAL_MEDIA override ON
+          </span>
+        )}
+      </div>
+      {safety.unsafe && (
+        <p className="mt-2">
+          <strong>Unsafe:</strong> connected to a remote database with local media storage. Store
+          creation is blocked to avoid writing <code>/uploads/dev-media</code> URLs into the remote
+          DB. Set <code className="rounded bg-red-100 px-1">MEDIA_STORAGE_PROVIDER=vercel-blob</code>{" "}
+          (with a Blob token) or generate from the deployed admin.
+        </p>
+      )}
+      {!safety.unsafe && safety.dbIsRemote && safety.effectiveProvider === "local" && (
+        <p className="mt-2 text-xs">
+          Override active — local media URLs will be written to the remote DB. Run{" "}
+          <code>media:repair</code> afterwards.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps }) {
   const [formValues, setFormValues] = useState<BlueprintFormValues>({
     domain: "",
     testOnly: true,
@@ -312,6 +478,8 @@ export function GeneratorForms() {
   }
 
   function handleLaunchStore() {
+    if (isLaunchPending) return;
+    setLaunchResult(null);
     startLaunch(async () => {
       const result = await createStoreFromBlueprintAction({
         blueprintInput: buildBlueprintInput(formValues),
@@ -350,6 +518,8 @@ export function GeneratorForms() {
 
   return (
     <div className="space-y-8">
+      {mediaSafety && <EnvStatusPanel safety={mediaSafety} />}
+
       <section className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-950">
         <h2 className="font-bold">Launch a new store in minutes</h2>
         <p className="mt-1 text-blue-900/90">
@@ -525,20 +695,26 @@ export function GeneratorForms() {
               </div>
               <button
                 type="button"
-                disabled={isLaunchPending}
+                disabled={isLaunchPending || Boolean(mediaSafety?.unsafe)}
+                aria-busy={isLaunchPending}
                 onClick={handleLaunchStore}
-                className="mt-4 rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                className="mt-4 inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isLaunchPending ? "Creating store…" : "Create store & open preview"}
+                {isLaunchPending && <span className={inlineSpinnerClass} aria-hidden="true" />}
+                {isLaunchPending ? "Generating store…" : "Create store & open preview"}
               </button>
+
+              {mediaSafety?.unsafe && (
+                <p className="mt-2 text-xs font-medium text-red-700">
+                  Blocked: remote database + local media storage. See the status panel above.
+                </p>
+              )}
+
+              {isLaunchPending && <GenerationProgress />}
             </div>
           )}
 
-          {launchResult?.error && (
-            <p role="alert" className="mt-3 text-sm text-red-600">
-              {launchResult.error}
-            </p>
-          )}
+          {launchResult?.error && <LaunchFailure error={launchResult.error} />}
           {launchResult?.data && <LaunchSuccess result={launchResult.data} />}
 
           {blueprintResult?.blueprint && (

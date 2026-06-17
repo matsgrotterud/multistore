@@ -15,6 +15,7 @@ import {
   createStoreFromBlueprint,
   type CreateStoreFromBlueprintResult,
 } from "@/lib/stores/create-from-blueprint";
+import { getMediaStorageSafetyReport } from "@/lib/storage/media-storage-safety";
 
 export interface GeneratorActionResult<T> {
   ok: boolean;
@@ -61,6 +62,16 @@ export async function createStoreFromBlueprintAction(options: {
 }): Promise<GeneratorActionResult<CreateStoreFromBlueprintResult>> {
   try {
     await requireAdmin();
+
+    // Preflight: block before creating ANY rows if media would be written
+    // locally into a remote DB (prevents orphaned stores + broken live images).
+    if ((options.importProducts ?? true) !== false) {
+      const safety = getMediaStorageSafetyReport();
+      if (safety.unsafe) {
+        return { ok: false, error: safety.message };
+      }
+    }
+
     const input = storeBlueprintInputSchema.parse(options.blueprintInput);
     const { blueprint, guardrails } = await generateStoreBlueprint(input);
 

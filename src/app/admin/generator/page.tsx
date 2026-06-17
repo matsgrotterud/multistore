@@ -1,10 +1,12 @@
 import { requireAdmin } from "@/lib/admin/auth";
 import { GeneratorForms } from "@/components/admin/GeneratorForms";
+import { getMediaStorageSafetyReport } from "@/lib/storage/media-storage-safety";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminGeneratorPage() {
   await requireAdmin();
+  const safety = getMediaStorageSafetyReport();
 
   return (
     <div>
@@ -15,7 +17,14 @@ export default async function AdminGeneratorPage() {
         DNS.
       </p>
       <div className="mt-8">
-        <GeneratorForms />
+        <GeneratorForms
+          mediaSafety={{
+            dbIsRemote: safety.dbIsRemote,
+            effectiveProvider: safety.effectiveProvider,
+            unsafe: safety.unsafe,
+            overrideEnabled: safety.overrideEnabled,
+          }}
+        />
       </div>
     </div>
   );

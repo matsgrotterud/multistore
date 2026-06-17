@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { fetchMedia } from "@/lib/media/fetch-media";
 import { syncProductGallery } from "@/lib/media/sync-product-gallery";
 import { getStorageProvider } from "@/lib/storage/storage-provider";
+import { assertSafeMediaWriteContext } from "@/lib/storage/media-storage-safety";
 import type { SupplierMedia } from "@/lib/suppliers/providers/types";
 
 export interface IngestProductMediaInput {
@@ -25,6 +26,10 @@ export async function ingestProductMedia(
   if (!input.productId && !input.candidateId) {
     throw new Error("ingestProductMedia requires productId or candidateId.");
   }
+
+  // Backstop: never write local /uploads/dev-media URLs into a remote DB. The
+  // admin generator also preflights this, but this protects direct/script paths.
+  assertSafeMediaWriteContext();
 
   const storage = getStorageProvider();
   const result: IngestProductMediaResult = { stored: 0, failed: 0, skipped: 0 };

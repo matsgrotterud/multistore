@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getProviderHealthReport } from "@/lib/suppliers/catalog/provider-health";
+import { getMediaStorageSafetyReport } from "@/lib/storage/media-storage-safety";
+
+const LOCAL_UPLOAD_PREFIX = "/uploads/dev-media";
 
 /**
  * Generator/import diagnostic. Explains, for a store, exactly where the
@@ -75,10 +78,18 @@ async function reportStore(slug: string) {
   const variantRows = products.reduce((n, p) => n + p._count.variants, 0);
   const mediaAssetRows = products.reduce((n, p) => n + p._count.mediaAssets, 0);
 
+  const localMediaProducts = products.filter((p) => p.imageUrl?.startsWith(LOCAL_UPLOAD_PREFIX));
+
   console.log("\n  --- counts ---");
   console.log(`  categories:            ${categories.length}  [${categories.map((c) => c.slug).join(", ")}]`);
   console.log(`  products:              ${products.length}`);
   console.log(`  published products:    ${published.length}`);
+  console.log(`  LOCAL imageUrl (/uploads/dev-media): ${localMediaProducts.length}`);
+  if (localMediaProducts.length > 0) {
+    console.log(
+      `    -> repair: pnpm exec dotenv -e .env.media-repair -- pnpm run media:repair -- --store=${slug} --force`
+    );
+  }
   console.log(`  ProductImage rows:     ${imageRows}`);
   console.log(`  ProductVariant rows:   ${variantRows}`);
   console.log(`  ProductMediaAsset:     ${mediaAssetRows}`);
@@ -155,6 +166,15 @@ async function main() {
   ]) {
     console.log(`  ${name}=${flag(name)}`);
   }
+
+  console.log("\n=== MEDIA STORAGE SAFETY ===");
+  const safety = getMediaStorageSafetyReport();
+  console.log(`  DB target:          ${safety.dbIsRemote ? "REMOTE" : "local"}${safety.dbHost ? ` (${safety.dbHost})` : ""}`);
+  console.log(`  requested provider: ${safety.requestedProvider ?? "(unset)"}`);
+  console.log(`  effective provider: ${safety.effectiveProvider}`);
+  console.log(`  blob token present: ${safety.hasBlobToken}  vercel runtime: ${safety.isVercelRuntime}`);
+  console.log(`  override enabled:   ${safety.overrideEnabled}`);
+  console.log(`  ${safety.unsafe ? "!! UNSAFE !!" : "status OK"}: ${safety.message}`);
 
   console.log("\n=== PROVIDER HEALTH ===");
   try {
