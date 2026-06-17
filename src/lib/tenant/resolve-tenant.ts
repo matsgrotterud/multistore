@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/db";
+import { rethrowDevMissingTableError } from "@/lib/db/dev-guard";
 import {
   DEFAULT_STORE_SLUG,
   resolveStoreSlugFromHost,
@@ -18,10 +19,14 @@ export type StoreWithTheme = Prisma.StoreGetPayload<{
 
 export const getStoreBySlug = cache(
   async (slug: string): Promise<StoreWithTheme | null> => {
-    return prisma.store.findFirst({
-      where: { slug, isActive: true },
-      include: { theme: true },
-    });
+    try {
+      return await prisma.store.findFirst({
+        where: { slug, isActive: true },
+        include: { theme: true },
+      });
+    } catch (error) {
+      rethrowDevMissingTableError(error, "Store");
+    }
   }
 );
 
