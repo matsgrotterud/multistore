@@ -97,9 +97,6 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
     new Set(allProducts.flatMap((product) => parseStringArray(product.useCases)))
   ).sort();
 
-  // Top-scored product image doubles as an editorial category cover.
-  const coverImage = allProducts.find((product) => product.imageUrl)?.imageUrl ?? null;
-
   const guides = (await getGuides(store.id)).slice(0, 3);
 
   const categoryFaq: FaqItem[] = [
@@ -119,7 +116,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
   ];
 
   return (
-    <div>
+    <div className="mx-auto max-w-site px-4 py-8 sm:px-6">
       <PageViewTracker storeSlug={store.slug} />
       <StructuredData
         data={[
@@ -132,98 +129,67 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
         ]}
       />
 
-      {/* Editorial category hero */}
-      <section className="border-b border-ink/10 bg-white">
-        <div className="mx-auto max-w-site px-4 py-8 sm:px-6 sm:py-10">
-          <Breadcrumbs
-            items={[
-              { name: "Home", href: storefrontHref(store, "/") },
-              { name: category.name },
-            ]}
-          />
-          <div className="mt-6 grid gap-8 md:grid-cols-[1fr_18rem] md:items-center">
-            <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">
-                Collection
-              </p>
-              <h1 className="mt-3 font-heading text-3xl font-bold leading-[1.08] tracking-tight text-ink sm:text-4xl md:text-5xl">
-                {category.heroTitle}
-              </h1>
-              <p className="mt-4 text-base leading-7 text-ink/55">{category.heroSubtitle}</p>
-            </div>
-            {coverImage && (
-              <div className="hidden md:block">
-                <div className="aspect-[4/3] overflow-hidden rounded-theme-lg bg-surface ring-1 ring-ink/10">
-                  <img
-                    src={coverImage}
-                    alt={`${category.name} — ${store.name}`}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+      <Breadcrumbs
+        items={[
+          { name: "Home", href: storefrontHref(store, "/") },
+          { name: category.name },
+        ]}
+      />
 
-      <div className="mx-auto max-w-site px-4 py-10 sm:px-6 sm:py-12">
-        <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
-          <aside>
-            <FilterSidebar useCaseOptions={useCaseOptions} />
-          </aside>
-
-          <section aria-label={`${category.name} products`}>
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 pb-4">
-              <p className="text-sm text-ink/55" aria-live="polite">
-                <span className="font-semibold text-ink">{filtered.length}</span> of{" "}
-                {allProducts.length} products
-              </p>
-              <SortDropdown />
-            </div>
-            <ProductGrid
-              products={filteredWithCategory}
-              store={store}
-              locale={store.locale}
-              emptyMessage="No products match these filters. Try widening price or delivery time, or clear the filters."
-            />
-          </section>
-        </div>
-
-        {guides.length > 0 && (
-          <section className="mt-20" aria-labelledby="category-guides">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">
-              Buying help
-            </p>
-            <h2
-              id="category-guides"
-              className="mt-3 font-heading text-2xl font-bold tracking-tight text-ink sm:text-3xl"
-            >
-              Guides that help you choose
-            </h2>
-            <div className="mt-7 grid gap-5 md:grid-cols-3">
-              {guides.map((guide) => (
-                <GuideCard key={guide.id} guide={guide} store={store} />
-              ))}
-            </div>
-          </section>
-        )}
-
-        <div className="mt-20">
-          <FAQAccordion items={categoryFaq} title={`${category.name}: common questions`} />
-        </div>
-
-        <p className="mt-12 text-sm text-ink/55">
-          Looking for something else? Try the{" "}
-          <Link href={storefrontHref(store, "/quiz")} className="font-medium text-primary underline">
-            product finder quiz
-          </Link>{" "}
-          or{" "}
-          <Link href={storefrontHref(store, "/search")} className="font-medium text-primary underline">
-            search the whole store
-          </Link>
-          .
+      <header className="mt-4 max-w-3xl">
+        <h1 className="text-3xl font-bold text-ink md:text-4xl">
+          {category.heroTitle}
+        </h1>
+        <p className="mt-3 text-base leading-7 text-ink/70">
+          {category.heroSubtitle}
         </p>
+        <p className="mt-3 text-sm leading-6 text-ink/60">{category.description}</p>
+      </header>
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-[260px_1fr]">
+        <aside>
+          <FilterSidebar useCaseOptions={useCaseOptions} />
+        </aside>
+
+        <section aria-label={`${category.name} products`}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-ink/60" aria-live="polite">
+              {filtered.length} of {allProducts.length} products
+            </p>
+            <SortDropdown />
+          </div>
+          <ProductGrid products={filteredWithCategory} store={store} locale={store.locale} />
+        </section>
       </div>
+
+      {guides.length > 0 && (
+        <section className="mt-16" aria-labelledby="category-guides">
+          <h2 id="category-guides" className="text-2xl font-bold text-ink">
+            Guides that help you choose
+          </h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            {guides.map((guide) => (
+              <GuideCard key={guide.id} guide={guide} store={store} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="mt-16">
+        <FAQAccordion items={categoryFaq} title={`${category.name}: common questions`} />
+      </div>
+
+      <p className="mt-10 text-sm text-ink/60">
+        Looking for something else? Try the{" "}
+        <Link href={storefrontHref(store, "/quiz")} className="font-medium text-primary underline">
+          product finder quiz
+        </Link>{" "}
+        or{" "}
+        <Link href={storefrontHref(store, "/search")} className="font-medium text-primary underline">
+          search the whole store
+        </Link>
+        .
+      </p>
     </div>
   );
 }

@@ -54,6 +54,26 @@ export interface CreateStoreFromBlueprintResult {
   rejectionReasons: string[];
   guidesCreated: number;
   products: GeneratedProductSummary[];
+  /** Non-fatal issues during import (per-category failures, etc.). */
+  warnings: string[];
+}
+
+/**
+ * Provider keys used for generated-store imports. Mirrors the resolution in
+ * import-products.ts so StoreSupplierSettings and discovery stay consistent.
+ */
+function importProviderKeys(): string[] {
+  const configured = process.env.CATALOG_IMPORT_PROVIDER_KEYS?.split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (configured && configured.length > 0) return configured;
+  return process.env.CJ_ENABLED === "true" ? ["cj"] : ["mock"];
+}
+
+function fulfillmentModeForProvider(providerKey: string): string {
+  if (providerKey === "mock") return "MOCK";
+  if (providerKey === "cj" || providerKey === "doba") return "DROPSHIP";
+  return "AFFILIATE";
 }
 
 function slugify(value: string): string {
@@ -256,10 +276,40 @@ export async function createStoreFromBlueprint(
     },
   });
 
+  // Persist supplier import settings so discovery has store-specific thresholds
+  // and the admin has visibility. Thresholds match the discovery quality-gate
+  // floor (score>=50, margin>=25) so good supplier items are not pre-rejected.
+  const providerKeys = importProviderKeys();
+  for (const providerKey of providerKeys) {
+    await prisma.storeSupplierSettings.upsert({
+      where: { storeId_providerKey: { storeId: store.id, providerKey } },
+      update: {
+        isEnabled: true,
+        importQueries: JSON.stringify(blueprint.productImportQueries.slice(0, 8)),
+      },
+      create: {
+        storeId: store.id,
+        providerKey,
+        isEnabled: true,
+        fulfillmentMode: fulfillmentModeForProvider(providerKey),
+        importQueries: JSON.stringify(blueprint.productImportQueries.slice(0, 8)),
+        minMarginPercent: 25,
+        minProductScore: 50,
+        maxShippingDays: 18,
+        autoPublish: options.autoPublishScored ?? true,
+      },
+    });
+  }
+
   let productsImported = 0;
   let productsPublished = 0;
   let productsDiscovered = 0;
   let candidatesRejected = 0;
+  const warnings: string[] = [];
+  // Bound synchronous import so generation stays demo-fast and never appears to
+  // hang. Categories are still all created; products fill until the budget.
+  const IMPORT_BUDGET = 8;
+  const PER_CATEGORY_LIMIT = 3;
 
   for (let index = 0; index < categories.length; index++) {
     const categorySeed = categories[index];
@@ -277,41 +327,42 @@ export async function createStoreFromBlueprint(
       },
     });
 
-    if (importProducts) {
+    if (importProducts && productsImported < IMPORT_BUDGET) {
       const query =
         blueprint.productImportQueries[index] ??
         blueprint.productImportQueries[0] ??
         categorySeed.name;
-      const imported = await importProductsForStore({
-        storeSlug: store.slug,
-        categorySlug: category.slug,
-        query,
-        queryVariants: buildProductQueryVariants(input, categorySeed.name),
-        targetMargin: 0.35,
-      });
-      productsImported += imported.imported;
-      productsDiscovered += imported.discovered;
-      candidatesRejected += imported.rejected;
-
-      if (autoPublishScored && imported.imported > 0) {
-        const settings = buildStoreSettings(blueprint, input);
-        const threshold = settings.automation.autoPublishMinScore;
-        // Publish high-scoring imports with media. `noindex` is left to the
-        // product's own (content-quality-driven) value so READY products can be
-        // indexed once the store goes Live; preview stores are noindexed via
-        // launchStatus regardless.
-        const publishResult = await prisma.product.updateMany({
-          where: {
-            storeId: store.id,
-            categoryId: category.id,
-            productScore: { gte: threshold },
-            mediaStatus: "OK",
-          },
-          data: { isPublished: true },
+      try {
+        const imported = await importProductsForStore({
+          storeSlug: store.slug,
+          categorySlug: category.slug,
+          query,
+          queryVariants: buildProductQueryVariants(input, categorySeed.name),
+          targetMargin: 0.35,
+          limit: PER_CATEGORY_LIMIT,
         });
-        productsPublished += publishResult.count;
+        productsImported += imported.imported;
+        productsDiscovered += imported.discovered;
+        candidatesRejected += imported.rejected;
+      } catch (error) {
+        // One category's import failure must never abort the whole store or
+        // leave an orphaned empty store. Record it and continue.
+        const message = error instanceof Error ? error.message : "Unknown import error";
+        warnings.push(`Product import failed for category "${categorySeed.name}": ${message}`);
+        console.error(`import failed for ${store.slug}/${category.slug}`, error);
       }
     }
+  }
+
+  if (autoPublishScored && productsImported > 0) {
+    // Preview stores are noindexed via launchStatus, so it is safe to publish
+    // every imported product that has real stored media. Quality gates already
+    // filtered junk at discovery (ENRICHED requires score >= 50 and >= 2 media).
+    const publishResult = await prisma.product.updateMany({
+      where: { storeId: store.id, mediaStatus: "OK", isPublished: false },
+      data: { isPublished: true },
+    });
+    productsPublished += publishResult.count;
   }
 
   const faqBody = JSON.stringify(
@@ -455,5 +506,6 @@ export async function createStoreFromBlueprint(
     rejectionReasons,
     guidesCreated,
     products,
+    warnings,
   };
 }

@@ -164,8 +164,13 @@ function isRelevantCandidate(
   return bestMatch >= 1;
 }
 
+/**
+ * True only for *children's* niches — used to keep pet products out of a kids'
+ * store. Must require an explicit child indicator: matching bare "toy"/"toys"
+ * wrongly classified niches like "vegan dog toys" and rejected every result.
+ */
 function isChildToyNiche(value: string): boolean {
-  return /(child|children|kid|kids|toy|toys|toddler)/i.test(value);
+  return /(child|children|kid|kids|toddler|baby|infant|nursery)/i.test(value);
 }
 
 function importantTerms(value: string): string[] {

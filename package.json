@@ -28,6 +28,10 @@
     "media:repair": "tsx scripts/repair-media-storage.ts",
     "debug:phase1": "tsx scripts/debug-phase1.ts",
     "debug:phase1:local": "dotenv -e .env.local -o -- tsx scripts/debug-phase1.ts",
+    "debug:generation": "tsx scripts/debug-generation.ts",
+    "debug:generation:local": "dotenv -e .env.local -o -- tsx scripts/debug-generation.ts",
+    "generate:store": "tsx scripts/generate-store.ts",
+    "generate:store:local": "dotenv -e .env.local -o -- tsx scripts/generate-store.ts",
     "content:backfill": "tsx scripts/backfill-product-content.ts",
     "content:backfill:local": "dotenv -e .env.local -o -- tsx scripts/backfill-product-content.ts",
     "prisma:studio": "prisma studio"

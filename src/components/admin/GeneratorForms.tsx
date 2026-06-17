@@ -154,6 +154,28 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
         )}
       </ul>
 
+      {result.productsImported === 0 && (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-semibold">No products were imported</p>
+          <p className="mt-1">
+            {result.productsDiscovered} candidates were discovered and {result.candidatesRejected}{" "}
+            were rejected. The store, categories and content were still created — review the
+            rejection reasons below or try a broader/more specific niche query, then re-run import.
+          </p>
+        </div>
+      )}
+
+      {result.warnings.length > 0 && (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-semibold">Warnings</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {result.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {result.rejectionReasons.length > 0 && (
         <div className="mt-3 rounded-md bg-emerald-100/60 p-3 text-xs">
           <p className="font-semibold">Why candidates were rejected</p>
