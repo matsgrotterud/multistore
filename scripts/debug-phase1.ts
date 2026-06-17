@@ -11,6 +11,15 @@ import { parseFaq, parseSpecs, parseStringArray } from "@/lib/utils/json";
 const BASE =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3010";
 
+const LOCAL_UPLOAD_PREFIX = "/uploads/dev-media";
+
+function isLocalUpload(url: string | null | undefined): boolean {
+  return Boolean(url && url.startsWith(LOCAL_UPLOAD_PREFIX));
+}
+function isBlobUrl(url: string | null | undefined): boolean {
+  return Boolean(url && url.includes(".public.blob.vercel-storage.com/"));
+}
+
 function flag(name: string): string {
   return process.env[name] ? process.env[name]! : "(unset)";
 }
@@ -116,6 +125,8 @@ async function main() {
       where: { storeId: store.id },
       include: {
         category: { select: { slug: true } },
+        images: { select: { url: true } },
+        mediaAssets: { select: { storageUrl: true } },
         _count: { select: { images: true, mediaAssets: true, variants: true } },
       },
       orderBy: { productScore: "desc" },
@@ -123,8 +134,17 @@ async function main() {
     if (products.length === 0) continue;
 
     const cjCount = products.filter((p) => p.providerKey === "cj").length;
+    const brokenImageCount = products.filter(
+      (p) =>
+        isLocalUpload(p.imageUrl) ||
+        p.images.some((image) => isLocalUpload(image.url)) ||
+        p.mediaAssets.some((asset) => isLocalUpload(asset.storageUrl) || asset.storageUrl === null)
+    ).length;
     console.log("\n" + "-".repeat(72));
     console.log(`STORE ${store.slug} (${store.launchStatus}, ${store.currency}) — ${products.length} products, ${cjCount} CJ`);
+    if (brokenImageCount > 0) {
+      console.log(`  ⚠ ${brokenImageCount} product(s) have broken/local media — run: pnpm run media:repair -- --store=${store.slug}`);
+    }
     console.log("-".repeat(72));
 
     for (const product of products) {
@@ -132,16 +152,25 @@ async function main() {
       const previewUrl = `${BASE}/s/${store.slug}/c/${cat}/p/${product.slug}`;
       const canonicalPath = `/c/${cat}/p/${product.slug}`;
       const placeholder = product.imageUrl.startsWith("/api/placeholder");
+      const localUpload = isLocalUpload(product.imageUrl);
+      const blob = isBlobUrl(product.imageUrl);
+      const localImageCount =
+        product.images.filter((image) => isLocalUpload(image.url)).length +
+        product.mediaAssets.filter((asset) => isLocalUpload(asset.storageUrl) || asset.storageUrl === null).length;
       const { score, missing } = completeness(product);
       console.log(
         `\n  • ${product.slug}\n` +
           `    category=${cat} published=${product.isPublished} noindex=${product.noindex} quality=${product.qualityStatus}\n` +
           `    provider=${product.providerKey ?? "-"} fulfillment=${product.fulfillmentMode} externalId=${product.externalId ?? "-"}\n` +
           `    price=${product.price} ${product.currency} checkoutAvailable=${checkoutAvailable(product)}\n` +
-          `    imageUrl placeholder=${placeholder ? "YES" : "no"} images=${product._count.images} mediaAssets=${product._count.mediaAssets} variants=${product._count.variants}\n` +
+          `    imageUrl placeholder=${placeholder ? "YES" : "no"} imageUrlIsLocalUpload=${localUpload ? "YES" : "no"} imageUrlIsBlob=${blob ? "yes" : "no"}\n` +
+          `    images=${product._count.images} mediaAssets=${product._count.mediaAssets} variants=${product._count.variants} brokenMedia=${localImageCount}\n` +
           `    copyCompleteness=${score}/10${missing.length ? ` (missing: ${missing.join(", ")})` : ""}\n` +
           `    canonicalPath=${canonicalPath}\n` +
-          `    OPEN: ${previewUrl}`
+          `    OPEN: ${previewUrl}` +
+          (localUpload || localImageCount > 0
+            ? `\n    ⚠ WARNING: media points to ${LOCAL_UPLOAD_PREFIX} — broken in production. Run media:repair.`
+            : "")
       );
     }
   }

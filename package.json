@@ -25,6 +25,7 @@
     "catalog:sync": "tsx scripts/catalog-sync.ts sync",
     "catalog:health": "tsx scripts/catalog-sync.ts health",
     "media:smoke": "tsx scripts/media-smoke.ts",
+    "media:repair": "tsx scripts/repair-media-storage.ts",
     "debug:phase1": "tsx scripts/debug-phase1.ts",
     "debug:phase1:local": "dotenv -e .env.local -o -- tsx scripts/debug-phase1.ts",
     "content:backfill": "tsx scripts/backfill-product-content.ts",

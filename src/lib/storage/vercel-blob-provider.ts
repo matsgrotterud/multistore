@@ -51,6 +51,17 @@ export class VercelBlobStorageProvider implements StorageProvider {
   }
 }
 
+export type VercelBlobAuthMode = "token" | "oidc" | "runtime" | "none";
+
+/**
+ * Resolve Blob auth options.
+ *
+ * A read/write token is authoritative: when `BLOB_READ_WRITE_TOKEN` is present
+ * we use token auth ONLY and never fall back to (or mix in) `VERCEL_OIDC_TOKEN`.
+ * Mixing the two — or relying on a stale OIDC token outside the Vercel runtime —
+ * is the usual cause of Blob auth failures locally and in CI. Token values are
+ * never logged.
+ */
 export function getVercelBlobAuthOptions(): BlobAuthOptions {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   if (token) return { token };
@@ -63,10 +74,14 @@ export function getVercelBlobAuthOptions(): BlobAuthOptions {
   };
 }
 
+/** Auth mode for diagnostics/logging. Never exposes secret values. */
+export function getVercelBlobAuthMode(): VercelBlobAuthMode {
+  if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return "token";
+  if (process.env.VERCEL_OIDC_TOKEN?.trim()) return "oidc";
+  if (process.env.VERCEL) return "runtime";
+  return "none";
+}
+
 export function hasVercelBlobAuth(): boolean {
-  return Boolean(
-    process.env.BLOB_READ_WRITE_TOKEN?.trim() ||
-      process.env.VERCEL_OIDC_TOKEN?.trim() ||
-      process.env.VERCEL
-  );
+  return getVercelBlobAuthMode() !== "none";
 }
