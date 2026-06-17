@@ -152,7 +152,10 @@ export default async function AdminImportPage() {
                   <td className="px-4 py-3 font-semibold">{candidate.score.toFixed(1)}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {candidate.mediaAssets.filter((asset) => asset.ingestionStatus === "STORED").length}/
-                    {candidate.mediaAssets.length}
+                    {countMediaJson(candidate.mediaJson)}
+                    <span className="block text-xs text-slate-400">
+                      {candidate.mediaAssets.length} attempts
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
@@ -213,6 +216,15 @@ export default async function AdminImportPage() {
   );
 }
 
+function countMediaJson(raw: string): number {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function statusClass(status: string): string {
   const base = "rounded-full px-2.5 py-1 text-xs font-semibold";
   if (status === "OK") return `${base} bg-emerald-100 text-emerald-800`;
@@ -228,4 +240,3 @@ function candidateStatusClass(status: string): string {
   if (status === "REJECTED" || status === "ERROR") return `${base} bg-red-100 text-red-800`;
   return `${base} bg-slate-100 text-slate-700`;
 }
-

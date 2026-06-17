@@ -1,6 +1,7 @@
 import Link from "next/link";
-import type { Product } from "@prisma/client";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
+import type { CatalogProduct } from "@/lib/stores/queries";
+import { productHref, type LinkStore } from "@/lib/stores/storefront-links";
 import { parseSpecs } from "@/lib/utils/json";
 import { STOCK_STATUS_LABELS, isStockStatus } from "@/lib/types";
 
@@ -11,9 +12,11 @@ import { STOCK_STATUS_LABELS, isStockStatus } from "@/lib/types";
  */
 export function ComparisonTable({
   products,
+  store,
   locale = "en-US",
 }: {
-  products: Product[];
+  products: CatalogProduct[];
+  store: LinkStore;
   locale?: string;
 }) {
   if (products.length === 0) return null;
@@ -42,7 +45,7 @@ export function ComparisonTable({
             {products.map((product) => (
               <th key={product.id} scope="col" className="px-4 py-3 align-top">
                 <Link
-                  href={`/p/${product.slug}`}
+                  href={productHref(store, product.slug, product.category?.slug)}
                   className="font-semibold text-ink hover:text-primary"
                 >
                   {product.title}
@@ -102,7 +105,7 @@ export function ComparisonTable({
             </th>
             {products.map((product) => (
               <td key={product.id} className="px-4 py-3">
-                <Link href={`/p/${product.slug}`} className="text-sm font-semibold text-primary underline">
+                <Link href={productHref(store, product.slug, product.category?.slug)} className="text-sm font-semibold text-primary underline">
                   View details
                 </Link>
               </td>

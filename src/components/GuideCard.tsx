@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { ContentPage } from "@prisma/client";
+import { storefrontHref, type LinkStore } from "@/lib/stores/storefront-links";
 
-export function GuideCard({ guide }: { guide: ContentPage }) {
+export function GuideCard({ guide, store }: { guide: ContentPage; store: LinkStore }) {
   return (
     <Link
-      href={`/guides/${guide.slug}`}
+      href={storefrontHref(store, `/guides/${guide.slug}`)}
       className="card group flex h-full flex-col gap-3 p-6 transition hover:border-primary"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-primary">

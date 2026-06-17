@@ -16,6 +16,7 @@ import {
   getHomepageFaq,
   requireStore,
 } from "@/lib/stores/queries";
+import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
 import { parseFaq } from "@/lib/utils/json";
 
 export default async function StoreHomePage({
@@ -60,12 +61,12 @@ export default async function StoreHomePage({
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               {categories[0] && (
-                <Link href={`/c/${categories[0].slug}`} className="btn-primary">
+                <Link href={categoryHref(store, categories[0].slug)} className="btn-primary">
                   Shop {categories[0].name}
                 </Link>
               )}
               <Link
-                href="/quiz"
+                href={storefrontHref(store, "/quiz")}
                 className="inline-flex items-center justify-center gap-2 rounded-theme border border-white/30 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
               >
                 Find my match in 60 seconds
@@ -100,6 +101,7 @@ export default async function StoreHomePage({
               <CategoryCard
                 key={category.id}
                 category={category}
+                store={store}
                 productCount={category._count.products}
               />
             ))}
@@ -119,14 +121,14 @@ export default async function StoreHomePage({
               </p>
             </div>
             <Link
-              href="/compare"
+              href={storefrontHref(store, "/compare")}
               className="hidden shrink-0 text-sm font-semibold text-primary underline sm:block"
             >
               Compare top picks →
             </Link>
           </div>
           <div className="mt-5">
-            <ProductGrid products={featuredProducts} locale={store.locale} />
+            <ProductGrid products={featuredProducts} store={store} locale={store.locale} />
           </div>
         </section>
 
@@ -146,7 +148,7 @@ export default async function StoreHomePage({
             </p>
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               {guides.slice(0, 3).map((guide) => (
-                <GuideCard key={guide.id} guide={guide} />
+                <GuideCard key={guide.id} guide={guide} store={store} />
               ))}
             </div>
           </section>
@@ -160,7 +162,7 @@ export default async function StoreHomePage({
               Answer a few questions about how you will actually use it and we
               will rank the catalog for your situation.
             </p>
-            <Link href="/quiz" className="btn-primary mt-auto">
+            <Link href={storefrontHref(store, "/quiz")} className="btn-primary mt-auto">
               Take the quiz
             </Link>
           </div>
@@ -170,7 +172,7 @@ export default async function StoreHomePage({
               Our top picks in one table: price, delivery time and the specs
               that actually differ.
             </p>
-            <Link href="/compare" className="btn-secondary mt-auto">
+            <Link href={storefrontHref(store, "/compare")} className="btn-secondary mt-auto">
               Open the comparison
             </Link>
           </div>

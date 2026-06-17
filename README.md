@@ -53,7 +53,7 @@ The app works locally with `MEDIA_STORAGE_PROVIDER=local`, `MOCK_CHECKOUT=true` 
 | Cron protection | `CRON_SECRET` |
 | Runtime object storage | `BLOB_READ_WRITE_TOKEN`, `MEDIA_STORAGE_PROVIDER=vercel-blob` |
 | Stripe checkout | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_CAPTURE_MODE=manual` |
-| CJdropshipping | `CJ_ENABLED`, `CJ_API_KEY`, optional `CJ_ACCESS_TOKEN`/`CJ_REFRESH_TOKEN`; order API also needs `CJ_ORDER_API_ENABLED`, `CJ_ORDER_PAY_TYPE`, `CJ_LOGISTIC_NAME`, `CJ_FROM_COUNTRY_CODE` |
+| CJdropshipping | `CJ_ENABLED`, `CJ_API_KEY`, optional `CJ_ACCESS_TOKEN`/`CJ_REFRESH_TOKEN`; order API also needs `CJ_ORDER_API_ENABLED`, `CJ_ORDER_PAY_TYPE`, `CJ_LOGISTIC_NAME`, `CJ_FROM_COUNTRY_CODE`; Phase 1 manual ordering can use `CJ_MANUAL_FULFILLMENT_ENABLED=true` |
 | Doba | `DOBA_ENABLED`, `DOBA_ACCESS_KEY`, `DOBA_APP_KEY`, `DOBA_APP_SECRET` |
 | eBay Browse API | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, optional `EBAY_EPN_CAMPAIGN_ID` |
 | AliExpress affiliate/open platform | `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID` |
@@ -154,6 +154,8 @@ Products can be `DROPSHIP`, `AFFILIATE`, `MANUAL` or `MOCK`.
 Automatic supplier ordering must only be enabled when the provider has an approved checkout/order API. Otherwise the product stays affiliate/manual/mock and should not pretend automatic fulfillment exists.
 
 Stripe PaymentIntent checkout is available when `MOCK_CHECKOUT=false` and Stripe keys exist. Use `PAYMENT_CAPTURE_MODE=manual` for dropship mode: the app authorizes payment first, routes the order to an approved provider, and only captures when fulfillment is confirmed. If a provider returns pending or errors, the uncaptured PaymentIntent is left authorized or cancelled instead of pretending fulfillment succeeded.
+
+For Phase 1 CJ products can be sold without automatic CJ order placement by setting `CJ_MANUAL_FULFILLMENT_ENABLED=true`. This creates `MANUAL_ACTION_REQUIRED` supplier orders with product/variant IDs and shipping details for admin placement in CJ; it never marks the supplier order as placed by CJ.
 
 Mock checkout remains available for local development with `MOCK_CHECKOUT=true`.
 

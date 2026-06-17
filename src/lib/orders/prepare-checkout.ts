@@ -6,8 +6,10 @@ import type {
   FulfillmentMode,
   PreparedCheckout,
 } from "@/lib/orders/types";
+import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
 import { getCommerceProvider } from "@/lib/suppliers/providers/registry";
 import { checkoutSchema } from "@/lib/validation/schemas";
+import { parseJsonObject } from "@/lib/utils/json";
 
 function shippingCostFor(subtotal: number): number {
   if (subtotal <= 0) return 0;
@@ -58,6 +60,9 @@ export async function prepareCheckout(input: unknown): Promise<
       id: { in: data.items.map((item) => item.productId) },
       isPublished: true,
     },
+    include: {
+      variants: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+    },
   });
   const productById = new Map(products.map((product) => [product.id, product]));
 
@@ -70,6 +75,22 @@ export async function prepareCheckout(input: unknown): Promise<
     }
     if (product.stockStatus === "OUT_OF_STOCK") {
       return { ok: false, message: `"${product.title}" is currently out of stock.` };
+    }
+
+    const selectedVariant = item.variantId
+      ? product.variants.find((variant) => variant.id === item.variantId)
+      : null;
+    if (product.variants.length > 0 && !selectedVariant) {
+      return { ok: false, message: `Please choose an option for "${product.title}".` };
+    }
+    if (item.variantId && !selectedVariant) {
+      return { ok: false, message: `Selected option for "${product.title}" is no longer available.` };
+    }
+    if (selectedVariant?.stockStatus === "OUT_OF_STOCK") {
+      return {
+        ok: false,
+        message: `"${product.title}" (${selectedVariant.optionSummary}) is currently out of stock.`,
+      };
     }
 
     const fulfillmentMode = parseFulfillmentMode(product.fulfillmentMode);
@@ -104,23 +125,60 @@ export async function prepareCheckout(input: unknown): Promise<
         };
       }
 
+      const canUseManualCjFallback =
+        providerKey === "cj" && isCjManualFulfillmentEnabled();
+
       if (!provider.capabilities.checkout || !provider.createDropshipOrder) {
+        if (canUseManualCjFallback) {
+          // The order can be paid and queued for manual CJ placement later.
+        } else {
+          return {
+            ok: false,
+            message: `"${product.title}" cannot be sold through checkout until ${provider.name} checkout is enabled.`,
+          };
+        }
+      }
+
+      if (
+        selectedVariant &&
+        !selectedVariant.externalVariantId &&
+        !selectedVariant.sku &&
+        canUseManualCjFallback === false
+      ) {
         return {
           ok: false,
-          message: `"${product.title}" cannot be sold through checkout until ${provider.name} checkout is enabled.`,
+          message: `"${product.title}" is missing supplier variant data for checkout.`,
         };
       }
     }
 
-    subtotal += product.price * item.quantity;
+    const unitPrice = selectedVariant?.price ?? product.price;
+    const unitCost = selectedVariant?.cost ?? product.cost;
+    const sku = selectedVariant?.sku ?? product.sku;
+    subtotal += unitPrice * item.quantity;
     lines.push({
       productId: product.id,
+      variantId: selectedVariant?.id ?? null,
       title: product.title,
       slug: product.slug,
-      sku: product.sku,
+      sku,
+      variantTitle: selectedVariant?.title ?? null,
+      optionSummary: selectedVariant?.optionSummary ?? null,
+      externalVariantId: selectedVariant?.externalVariantId ?? null,
+      variantSnapshot: selectedVariant
+        ? {
+            id: selectedVariant.id,
+            title: selectedVariant.title,
+            optionSummary: selectedVariant.optionSummary,
+            options: parseJsonObject(selectedVariant.optionsJson),
+            sku: selectedVariant.sku,
+            externalVariantId: selectedVariant.externalVariantId,
+            imageUrl: selectedVariant.imageUrl,
+          }
+        : {},
       quantity: item.quantity,
-      unitPrice: product.price,
-      unitCost: product.cost,
+      unitPrice,
+      unitCost,
       fulfillmentMode,
       providerKey: product.providerKey,
       externalId: product.externalId,

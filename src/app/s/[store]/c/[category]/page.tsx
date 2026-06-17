@@ -16,6 +16,7 @@ import {
   getGuides,
   requireStore,
 } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 import { parseStringArray } from "@/lib/utils/json";
 import type { FaqItem } from "@/lib/types";
 import type { Product } from "@prisma/client";
@@ -85,6 +86,13 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
     single(search.sort) ?? "score"
   );
 
+  // Attach the category slug so product cards/JSON-LD can build category-aware
+  // URLs (the products query is already scoped to this category).
+  const filteredWithCategory = filtered.map((product) => ({
+    ...product,
+    category: { slug: category.slug },
+  }));
+
   const useCaseOptions = Array.from(
     new Set(allProducts.flatMap((product) => parseStringArray(product.useCases)))
   ).sort();
@@ -112,7 +120,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
       <PageViewTracker storeSlug={store.slug} />
       <StructuredData
         data={[
-          itemListJsonLd(store, category.name, filtered),
+          itemListJsonLd(store, category.name, filteredWithCategory),
           breadcrumbJsonLd(store, [
             { name: "Home", path: "/" },
             { name: category.name, path: `/c/${category.slug}` },
@@ -122,7 +130,10 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
       />
 
       <Breadcrumbs
-        items={[{ name: "Home", href: "/" }, { name: category.name }]}
+        items={[
+          { name: "Home", href: storefrontHref(store, "/") },
+          { name: category.name },
+        ]}
       />
 
       <header className="mt-4 max-w-3xl">
@@ -147,7 +158,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
             </p>
             <SortDropdown />
           </div>
-          <ProductGrid products={filtered} locale={store.locale} />
+          <ProductGrid products={filteredWithCategory} store={store} locale={store.locale} />
         </section>
       </div>
 
@@ -158,7 +169,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
           </h2>
           <div className="mt-5 grid gap-4 md:grid-cols-3">
             {guides.map((guide) => (
-              <GuideCard key={guide.id} guide={guide} />
+              <GuideCard key={guide.id} guide={guide} store={store} />
             ))}
           </div>
         </section>
@@ -170,11 +181,11 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
 
       <p className="mt-10 text-sm text-ink/60">
         Looking for something else? Try the{" "}
-        <Link href="/quiz" className="font-medium text-primary underline">
+        <Link href={storefrontHref(store, "/quiz")} className="font-medium text-primary underline">
           product finder quiz
         </Link>{" "}
         or{" "}
-        <Link href="/search" className="font-medium text-primary underline">
+        <Link href={storefrontHref(store, "/search")} className="font-medium text-primary underline">
           search the whole store
         </Link>
         .

@@ -4,6 +4,7 @@ import { GuideCard } from "@/components/GuideCard";
 import { PageViewTracker } from "@/components/PageViewTracker";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { getGuides, requireStore } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 
 interface GuidesPageProps {
   params: Promise<{ store: string }>;
@@ -30,7 +31,7 @@ export default async function GuidesPage({ params }: GuidesPageProps) {
   return (
     <div className="mx-auto max-w-site px-4 py-8 sm:px-6">
       <PageViewTracker storeSlug={store.slug} />
-      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Guides" }]} />
+      <Breadcrumbs items={[{ name: "Home", href: storefrontHref(store, "/") }, { name: "Guides" }]} />
       <h1 className="mt-4 text-3xl font-bold text-ink md:text-4xl">
         Buying guides
       </h1>
@@ -41,7 +42,7 @@ export default async function GuidesPage({ params }: GuidesPageProps) {
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {guides.map((guide) => (
-          <GuideCard key={guide.id} guide={guide} />
+          <GuideCard key={guide.id} guide={guide} store={store} />
         ))}
       </div>
     </div>

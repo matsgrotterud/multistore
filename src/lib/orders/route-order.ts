@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getStripeClient, paymentCaptureMode } from "@/lib/payments/stripe-client";
+import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
 import { getCommerceProvider } from "@/lib/suppliers/providers/registry";
 import { UnsupportedCapabilityError } from "@/lib/suppliers/providers/errors";
 import { toJson } from "@/lib/utils/json";
@@ -64,6 +65,7 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
   const errors: string[] = [];
   let supplierOrdersCreated = 0;
   let pendingSupplierOrders = 0;
+  let manualActionRequired = false;
 
   for (const item of order.items) {
     if (item.fulfillmentMode === "AFFILIATE") {
@@ -108,6 +110,45 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
       continue;
     }
 
+    const canUseManualCjFallback = provider.key === "cj" && isCjManualFulfillmentEnabled();
+    if ((!provider.capabilities.checkout || !provider.createDropshipOrder) && canUseManualCjFallback) {
+      const supplierOrder = await prisma.supplierOrder.create({
+        data: {
+          orderId: order.id,
+          providerKey: provider.key,
+          status: "MANUAL_ACTION_REQUIRED",
+          requestJson: toJson({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingAddress,
+            item: {
+              productId: item.productId,
+              productSlug: item.product.slug,
+              sourceUrl: item.product.sourceUrl,
+              externalId: item.externalId,
+              externalVariantId: item.externalVariantId,
+              sku: item.skuSnapshot,
+              quantity: item.quantity,
+              title: item.titleSnapshot,
+              optionSummary: item.optionSummarySnapshot,
+              unitPrice: item.unitPrice,
+            },
+          }),
+        },
+      });
+
+      await prisma.orderItem.update({
+        where: { id: item.id },
+        data: {
+          supplierOrderId: supplierOrder.id,
+          status: "MANUAL_ACTION_REQUIRED",
+        },
+      });
+      supplierOrdersCreated += 1;
+      manualActionRequired = true;
+      continue;
+    }
+
     if (!provider.capabilities.checkout || !provider.createDropshipOrder) {
       errors.push(
         `Provider ${provider.name} does not support checkout API for ${item.titleSnapshot}`
@@ -126,6 +167,9 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
         items: [
           {
             externalId: item.externalId,
+            externalVariantId: item.externalVariantId ?? undefined,
+            sku: item.skuSnapshot,
+            optionSummary: item.optionSummarySnapshot ?? undefined,
             quantity: item.quantity,
             title: item.titleSnapshot,
             unitPrice: item.unitPrice,
@@ -273,16 +317,21 @@ export async function routeOrder(orderId: string): Promise<RouteOrderResult> {
   }
 
   const fulfillmentStatus =
-    order.items.some((item) => item.fulfillmentMode === "MANUAL") && manualFulfillmentEnabled()
+    manualActionRequired
+      ? "MANUAL_ACTION_REQUIRED"
+      : order.items.some((item) => item.fulfillmentMode === "MANUAL") && manualFulfillmentEnabled()
       ? "MANUAL"
       : "SUPPLIER_ORDERED";
 
   const updated = await prisma.order.update({
     where: { id: order.id },
     data: {
-      status: "SUPPLIER_ORDERED",
+      status: manualActionRequired ? "FULFILLMENT_PENDING" : "SUPPLIER_ORDERED",
       paymentStatus: order.stripePaymentIntentId ? "CAPTURED" : "CAPTURED",
       fulfillmentStatus,
+      paymentError: manualActionRequired
+        ? "CJ supplier order requires manual placement by an admin."
+        : null,
     },
   });
 

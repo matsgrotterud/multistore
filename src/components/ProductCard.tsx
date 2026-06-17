@@ -1,26 +1,29 @@
 import Link from "next/link";
-import type { Product } from "@prisma/client";
 import { ProductCardCta } from "@/components/ProductCardCta";
 import { PriceBlock } from "@/components/PriceBlock";
 import { RatingDisplay } from "@/components/RatingDisplay";
-import { toClientProduct } from "@/lib/stores/queries";
+import { toClientProduct, type CatalogProduct } from "@/lib/stores/queries";
+import { productHref, type LinkStore } from "@/lib/stores/storefront-links";
 import { STOCK_STATUS_LABELS, isStockStatus } from "@/lib/types";
 
 export function ProductCard({
   product,
+  store,
   locale = "en-US",
 }: {
-  product: Product;
+  product: CatalogProduct;
+  store: LinkStore;
   locale?: string;
 }) {
   const client = toClientProduct(product);
+  const href = productHref(store, product.slug, product.category?.slug);
   const stockLabel = isStockStatus(product.stockStatus)
     ? STOCK_STATUS_LABELS[product.stockStatus]
     : product.stockStatus;
 
   return (
     <article className="card group flex h-full flex-col overflow-hidden">
-      <Link href={`/p/${product.slug}`} className="relative block aspect-square overflow-hidden bg-ink/5">
+      <Link href={href} className="relative block aspect-square overflow-hidden bg-ink/5">
         <img
           src={product.imageUrl}
           alt={product.imageAlt}
@@ -39,7 +42,7 @@ export function ProductCard({
             {product.brand}
           </p>
           <h3 className="mt-1 text-sm font-semibold leading-snug text-ink">
-            <Link href={`/p/${product.slug}`} className="hover:text-primary">
+            <Link href={href} className="hover:text-primary">
               {product.title}
             </Link>
           </h3>

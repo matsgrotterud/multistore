@@ -46,26 +46,37 @@ interface CjProductListItem {
   discountPrice?: string;
   bigImage?: string;
   productImage?: string;
-  productImageSet?: string[];
-  videoList?: string[];
-  productVideo?: string[];
+  productImageSet?: string[] | string;
+  productImageList?: unknown;
+  productImages?: unknown;
+  descriptionImages?: unknown;
+  videoList?: string[] | string;
+  productVideo?: string[] | string;
   description?: string;
   categoryName?: string;
   deliveryCycle?: string;
   listedNum?: number;
   warehouseInventoryNum?: number;
   totalVerifiedInventory?: number;
+  productKeyEn?: string;
   variants?: CjVariant[];
   rawData?: unknown;
+  [key: string]: unknown;
 }
 
 interface CjVariant {
   vid?: string;
+  pid?: string;
   variantSku?: string;
   variantNameEn?: string;
+  variantKey?: string;
+  variantProperty?: string;
+  variantStandard?: string;
   variantImage?: string;
   variantSellPrice?: number;
+  variantSugSellPrice?: number;
   inventories?: Array<{ totalInventory?: number; countryCode?: string }>;
+  [key: string]: unknown;
 }
 
 interface CjListV2Response {
@@ -192,7 +203,10 @@ export class CjDropshippingProvider implements CommerceProvider {
     try {
       const products = await Promise.all(
         input.items.map(async (item) => {
-          const variant = await resolveCjVariant(item.externalId);
+          const variant =
+            item.externalVariantId || item.sku
+              ? { vid: item.externalVariantId, sku: item.sku }
+              : await resolveCjVariant(item.externalId);
           return {
             vid: variant.vid,
             sku: variant.vid ? undefined : variant.sku,
@@ -274,15 +288,14 @@ async function resolveCjVariant(externalId: string): Promise<{ vid?: string; sku
 function mapCjProduct(item: CjProductListItem, rawData?: unknown): Record<string, unknown> | null {
   const externalId = item.pid ?? item.id;
   const title = item.productNameEn ?? item.nameEn ?? item.productName;
-  const image = item.bigImage ?? item.productImage;
+  const media = normalizeSupplierMediaUrls(item, title ?? "");
+  const image = media.find((entry) => entry.mediaType === "IMAGE")?.url ?? item.bigImage ?? item.productImage;
   if (!externalId || !title || !image) return null;
 
-  const gallery = [...new Set([image, ...(item.productImageSet ?? [])].filter(Boolean))];
-  const videos = [...(item.productVideo ?? []), ...(item.videoList ?? [])].filter(Boolean);
   const delivery = parseDeliveryCycle(item.deliveryCycle);
   const inventory = item.totalVerifiedInventory ?? item.warehouseInventoryNum;
   const firstVariant = item.variants?.find((variant) => variant.vid || variant.variantSku);
-  const price = parsePrice(
+  const supplierCost = parsePrice(
     item.sellPrice ?? firstVariant?.variantSellPrice ?? item.nowPrice ?? item.discountPrice
   );
 
@@ -290,7 +303,7 @@ function mapCjProduct(item: CjProductListItem, rawData?: unknown): Record<string
     externalId,
     title,
     description: item.description ?? title,
-    price,
+    supplierCost,
     currency: "USD",
     stockStatus: inventory === 0 ? "OUT_OF_STOCK" : "IN_STOCK",
     shippingDaysMin: delivery?.min ?? 7,
@@ -299,27 +312,8 @@ function mapCjProduct(item: CjProductListItem, rawData?: unknown): Record<string
     sourceUrl: `https://cjdropshipping.com/product/${externalId}.html`,
     fulfillmentMode: "DROPSHIP",
     sku: item.productSku ?? item.sku ?? item.spu ?? firstVariant?.variantSku,
-    variants: (item.variants ?? []).map((variant) => ({
-      vid: variant.vid,
-      sku: variant.variantSku,
-      title: variant.variantNameEn,
-      image: variant.variantImage,
-      price: variant.variantSellPrice,
-      inventories: variant.inventories,
-    })),
-    media: gallery.map((url, index) => ({
-      url,
-      mediaType: "IMAGE",
-      alt: title,
-      sortOrder: index,
-    })).concat(
-      videos.map((url, index) => ({
-        url,
-        mediaType: "VIDEO",
-        alt: title,
-        sortOrder: gallery.length + index,
-      }))
-    ),
+    variants: normalizeCjVariants(item.variants ?? [], item.productKeyEn),
+    media,
     signals: {
       source: "cj_api",
       listedNum: item.listedNum,
@@ -328,6 +322,164 @@ function mapCjProduct(item: CjProductListItem, rawData?: unknown): Record<string
     risk: {},
     rawData,
   };
+}
+
+function normalizeSupplierMediaUrls(raw: unknown, title: string): SupplierMedia[] {
+  const candidates: Array<{ url: string; mediaType: "IMAGE" | "VIDEO"; keyPath: string }> = [];
+
+  function add(url: unknown, keyPath: string): void {
+    if (typeof url !== "string") return;
+    for (const found of extractUrls(url)) {
+      const normalized = normalizeHttpUrl(found);
+      if (!normalized) continue;
+      const mediaType = inferMediaType(normalized, keyPath);
+      if (!mediaType) continue;
+      candidates.push({ url: normalized, mediaType, keyPath });
+    }
+  }
+
+  function walk(value: unknown, keyPath: string, depth = 0): void {
+    if (depth > 5 || value == null) return;
+    if (typeof value === "string") {
+      add(value, keyPath);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => walk(entry, `${keyPath}[${index}]`, depth + 1));
+      return;
+    }
+    if (typeof value === "object") {
+      for (const [key, entry] of Object.entries(value)) {
+        walk(entry, keyPath ? `${keyPath}.${key}` : key, depth + 1);
+      }
+    }
+  }
+
+  walk(raw, "");
+
+  const seen = new Set<string>();
+  const images: SupplierMedia[] = [];
+  const videos: SupplierMedia[] = [];
+
+  for (const candidate of candidates) {
+    const dedupeKey = stripCacheBuster(candidate.url);
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const media: SupplierMedia = {
+      url: candidate.url,
+      mediaType: candidate.mediaType,
+      alt: title,
+      sortOrder: 0,
+    };
+    if (candidate.mediaType === "VIDEO") {
+      if (videos.length < 2) videos.push(media);
+    } else if (images.length < 12) {
+      images.push(media);
+    }
+  }
+
+  return [...images, ...videos].map((entry, index) => ({ ...entry, sortOrder: index }));
+}
+
+function extractUrls(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (/^https?:\/\//i.test(trimmed)) return [trimmed];
+  const matches = value.match(/https?:\/\/[^\s"'<>),]+/gi);
+  return matches ?? [];
+}
+
+function normalizeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function inferMediaType(url: string, keyPath: string): "IMAGE" | "VIDEO" | null {
+  const haystack = `${url} ${keyPath}`.toLowerCase();
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(haystack) || /(video|videolist|productvideo)/.test(haystack)) {
+    return "VIDEO";
+  }
+  if (
+    /\.(jpe?g|png|webp|gif)(\?|$)/.test(haystack) ||
+    /(image|images|img|photo|picture|pic|thumbnail|variantimage|bigimage)/.test(haystack)
+  ) {
+    return "IMAGE";
+  }
+  return null;
+}
+
+function stripCacheBuster(value: string): string {
+  try {
+    const url = new URL(value);
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(x-oss-|expires?|signature|token|spm|timestamp|ts)$/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function normalizeCjVariants(variants: CjVariant[], productKeyEn?: string): Array<Record<string, unknown>> {
+  const optionLabels = splitOptionList(productKeyEn);
+
+  return variants
+    .map((variant, index) => {
+      const optionValues = splitOptionList(
+        variant.variantKey ?? variant.variantProperty ?? variant.variantStandard
+      );
+      const options: Record<string, string> = {};
+      optionValues.forEach((value, optionIndex) => {
+        const label = optionLabels[optionIndex] ?? `Option ${optionIndex + 1}`;
+        options[label] = value;
+      });
+
+      const inventoryQuantity = totalVariantInventory(variant);
+      const optionSummary =
+        variant.variantKey ??
+        variant.variantProperty ??
+        variant.variantStandard ??
+        variant.variantNameEn ??
+        variant.variantSku ??
+        `Variant ${index + 1}`;
+
+      return {
+        externalVariantId: variant.vid,
+        sku: variant.variantSku,
+        title: variant.variantNameEn ?? optionSummary,
+        optionSummary,
+        options,
+        supplierCost: parsePrice(variant.variantSellPrice ?? variant.variantSugSellPrice),
+        stockStatus: inventoryQuantity === 0 ? "OUT_OF_STOCK" : "IN_STOCK",
+        inventoryQuantity,
+        imageUrl: typeof variant.variantImage === "string" ? normalizeHttpUrl(variant.variantImage) ?? undefined : undefined,
+        rawData: variant,
+      };
+    })
+    .filter((variant) => variant.externalVariantId || variant.sku || variant.optionSummary);
+}
+
+function splitOptionList(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[-/|,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function totalVariantInventory(variant: CjVariant): number | undefined {
+  const totals = variant.inventories
+    ?.map((entry) => entry.totalInventory)
+    .filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry));
+  if (!totals || totals.length === 0) return undefined;
+  return totals.reduce((sum, entry) => sum + entry, 0);
 }
 
 function parsePrice(value: unknown): number | undefined {

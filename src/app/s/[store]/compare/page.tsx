@@ -12,6 +12,7 @@ import {
   getProductsByIds,
   requireStore,
 } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 import { parseStringArray } from "@/lib/utils/json";
 
 interface ComparePageProps {
@@ -60,7 +61,7 @@ export default async function ComparePage({ params }: ComparePageProps) {
         ]}
       />
 
-      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Compare" }]} />
+      <Breadcrumbs items={[{ name: "Home", href: storefrontHref(store, "/") }, { name: "Compare" }]} />
 
       <h1 className="mt-4 text-3xl font-bold text-ink md:text-4xl">
         {comparison?.title ?? "Our top picks, side by side"}
@@ -80,12 +81,12 @@ export default async function ComparePage({ params }: ComparePageProps) {
       )}
 
       <div className="mt-8">
-        <ComparisonTable products={products} locale={store.locale} />
+        <ComparisonTable products={products} store={store} locale={store.locale} />
       </div>
 
       <p className="mt-8 text-sm text-ink/60">
         Still undecided? The{" "}
-        <Link href="/quiz" className="font-medium text-primary underline">
+        <Link href={storefrontHref(store, "/quiz")} className="font-medium text-primary underline">
           60-second quiz
         </Link>{" "}
         narrows this down to your specific situation.

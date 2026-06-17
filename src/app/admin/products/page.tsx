@@ -33,7 +33,10 @@ export default async function AdminProductsPage({ searchParams }: PageProps) {
   const products = await prisma.product.findMany({
     where: { storeId: activeStore.id },
     orderBy: { productScore: "desc" },
-    include: { category: { select: { name: true } } },
+    include: {
+      category: { select: { name: true, slug: true } },
+      _count: { select: { images: true, variants: true } },
+    },
   });
 
   const insights = buildProductInsights(activeStore, products);
@@ -77,6 +80,7 @@ export default async function AdminProductsPage({ searchParams }: PageProps) {
               <th className="px-4 py-3 font-medium">Margin</th>
               <th className="px-4 py-3 font-medium">SEO</th>
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Media</th>
               <th className="px-4 py-3 font-medium">Monetization notes</th>
             </tr>
           </thead>
@@ -101,7 +105,7 @@ export default async function AdminProductsPage({ searchParams }: PageProps) {
                     <p className="text-xs text-slate-500">
                       {product.sku} ·{" "}
                       <Link
-                        href={`/s/${activeStore.slug}/p/${product.slug}`}
+                        href={`/s/${activeStore.slug}/c/${product.category.slug}/p/${product.slug}`}
                         className="underline hover:text-slate-700"
                       >
                         view
@@ -145,6 +149,12 @@ export default async function AdminProductsPage({ searchParams }: PageProps) {
                     {product.isPublished && !product.noindex && (
                       <span className="text-emerald-700">live + indexable</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    <p>{product.mediaStatus}</p>
+                    <p className="text-slate-400">
+                      {product._count.images} images · {product._count.variants} variants
+                    </p>
                   </td>
                   <td className="max-w-64 px-4 py-3 text-xs text-slate-600">
                     {insight?.affiliateFallbackRecommended && (

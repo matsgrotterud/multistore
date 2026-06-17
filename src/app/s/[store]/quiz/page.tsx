@@ -10,6 +10,7 @@ import {
   requireStore,
   toClientProduct,
 } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 
 interface QuizPageProps {
   params: Promise<{ store: string }>;
@@ -44,7 +45,7 @@ export default async function QuizPage({ params }: QuizPageProps) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <PageViewTracker storeSlug={store.slug} />
-      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Quiz" }]} />
+      <Breadcrumbs items={[{ name: "Home", href: storefrontHref(store, "/") }, { name: "Quiz" }]} />
       <h1 className="mt-4 text-3xl font-bold text-ink md:text-4xl">
         Find your match in 60 seconds
       </h1>

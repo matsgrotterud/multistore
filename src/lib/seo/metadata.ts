@@ -67,12 +67,18 @@ export function buildStoreMetadata(store: Store): Metadata {
   });
 }
 
-export function buildProductMetadata(store: Store, product: Product): Metadata {
+export function buildProductMetadata(
+  store: Store,
+  product: Product,
+  categorySlug?: string | null
+): Metadata {
   return buildMetadata({
     store,
     title: product.seoTitle || `${product.title} | ${store.name}`,
     description: product.seoDescription || product.shortDescription,
-    path: `/p/${product.slug}`,
+    path: categorySlug
+      ? `/c/${categorySlug}/p/${product.slug}`
+      : `/p/${product.slug}`,
     ogImage: product.imageUrl,
     noindex: product.noindex || !product.isPublished,
   });

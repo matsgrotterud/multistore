@@ -4,6 +4,7 @@ import { CartPageContent } from "@/components/CartPageContent";
 import { PageViewTracker } from "@/components/PageViewTracker";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { requireStore } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 
 interface CartPageProps {
   params: Promise<{ store: string }>;
@@ -30,7 +31,7 @@ export default async function CartPage({ params }: CartPageProps) {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
       <PageViewTracker storeSlug={store.slug} />
-      <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Cart" }]} />
+      <Breadcrumbs items={[{ name: "Home", href: storefrontHref(store, "/") }, { name: "Cart" }]} />
       <h1 className="mt-4 text-3xl font-bold text-ink">Your cart</h1>
       <div className="mt-6">
         <CartPageContent

@@ -27,6 +27,18 @@ export interface CreateStoreFromBlueprintOptions {
   autoPublishScored?: boolean;
 }
 
+export interface GeneratedProductSummary {
+  slug: string;
+  title: string;
+  /** Internal preview path: /s/[store]/c/[category]/p/[product]. */
+  previewPath: string;
+  imageCount: number;
+  variantCount: number;
+  published: boolean;
+  noindex: boolean;
+  checkoutAvailable: boolean;
+}
+
 export interface CreateStoreFromBlueprintResult {
   storeSlug: string;
   storeName: string;
@@ -35,9 +47,13 @@ export interface CreateStoreFromBlueprintResult {
   plannedDomain: string | null;
   launchStatus: "PREVIEW";
   categoriesCreated: number;
+  productsDiscovered: number;
   productsImported: number;
   productsPublished: number;
+  candidatesRejected: number;
+  rejectionReasons: string[];
   guidesCreated: number;
+  products: GeneratedProductSummary[];
 }
 
 function slugify(value: string): string {
@@ -91,6 +107,34 @@ function buildStoreSettings(
       importTaxDisclaimer: `Import duties or taxes may apply on delivery in ${input.country}.`,
     },
   };
+}
+
+function buildProductQueryVariants(input: StoreBlueprintInput, categoryName: string): string[] {
+  const niche = input.niche.toLowerCase();
+  const variants = [
+    input.niche,
+    `${input.niche} ${categoryName}`,
+    categoryName,
+    ...input.productKeywords.map((keyword) => `${keyword} ${input.niche}`),
+  ];
+
+  if (/(toy|toys|child|children|kid|kids)/i.test(niche)) {
+    variants.push(
+      "wooden toys",
+      "educational toys",
+      "montessori toys",
+      "stem toys",
+      "puzzle toys"
+    );
+  }
+  if (/(pet|groom|dog|cat)/i.test(niche)) {
+    variants.push("pet grooming brush", "pet comb", "dog grooming", "cat grooming brush");
+  }
+  if (/(hiking|camp|outdoor|backpack)/i.test(niche)) {
+    variants.push("hiking backpack", "camping gear", "trekking accessories");
+  }
+
+  return variants;
 }
 
 function storeInfoForPolicies(
@@ -214,6 +258,8 @@ export async function createStoreFromBlueprint(
 
   let productsImported = 0;
   let productsPublished = 0;
+  let productsDiscovered = 0;
+  let candidatesRejected = 0;
 
   for (let index = 0; index < categories.length; index++) {
     const categorySeed = categories[index];
@@ -240,22 +286,28 @@ export async function createStoreFromBlueprint(
         storeSlug: store.slug,
         categorySlug: category.slug,
         query,
+        queryVariants: buildProductQueryVariants(input, categorySeed.name),
         targetMargin: 0.35,
       });
       productsImported += imported.imported;
+      productsDiscovered += imported.discovered;
+      candidatesRejected += imported.rejected;
 
       if (autoPublishScored && imported.imported > 0) {
         const settings = buildStoreSettings(blueprint, input);
         const threshold = settings.automation.autoPublishMinScore;
+        // Publish high-scoring imports with media. `noindex` is left to the
+        // product's own (content-quality-driven) value so READY products can be
+        // indexed once the store goes Live; preview stores are noindexed via
+        // launchStatus regardless.
         const publishResult = await prisma.product.updateMany({
           where: {
             storeId: store.id,
             categoryId: category.id,
             productScore: { gte: threshold },
-            qualityStatus: "READY",
             mediaStatus: "OK",
           },
-          data: { isPublished: true, noindex: false },
+          data: { isPublished: true },
         });
         productsPublished += publishResult.count;
       }
@@ -348,6 +400,46 @@ export async function createStoreFromBlueprint(
     });
   }
 
+  const importedProducts = await prisma.product.findMany({
+    where: { storeId: store.id },
+    orderBy: { productScore: "desc" },
+    include: {
+      category: { select: { slug: true } },
+      _count: { select: { images: true, variants: true } },
+    },
+  });
+  const manualCjFulfillment =
+    process.env.CJ_MANUAL_FULFILLMENT_ENABLED === "true" ||
+    process.env.MANUAL_FULFILLMENT_ENABLED === "true";
+  const products: GeneratedProductSummary[] = importedProducts.map((product) => ({
+    slug: product.slug,
+    title: product.title,
+    previewPath: `/s/${store.slug}/c/${product.category.slug}/p/${product.slug}`,
+    imageCount: product._count.images,
+    variantCount: product._count.variants,
+    published: product.isPublished,
+    noindex: product.noindex,
+    checkoutAvailable:
+      product.fulfillmentMode === "MOCK" ||
+      (product.fulfillmentMode === "DROPSHIP" &&
+        Boolean(product.externalId) &&
+        (product.providerKey === "mock" ||
+          (product.providerKey === "cj" && manualCjFulfillment))),
+  }));
+
+  const rejectedCandidates = await prisma.productCandidate.findMany({
+    where: { storeId: store.id, status: "REJECTED" },
+    select: { rejectionReason: true },
+    take: 50,
+  });
+  const rejectionReasons = Array.from(
+    new Set(
+      rejectedCandidates
+        .map((candidate) => candidate.rejectionReason?.trim())
+        .filter((reason): reason is string => Boolean(reason))
+    )
+  ).slice(0, 6);
+
   return {
     storeSlug: store.slug,
     storeName: store.name,
@@ -356,8 +448,12 @@ export async function createStoreFromBlueprint(
     plannedDomain,
     launchStatus: "PREVIEW",
     categoriesCreated: categories.length,
+    productsDiscovered,
     productsImported,
     productsPublished,
+    candidatesRejected,
+    rejectionReasons,
     guidesCreated,
+    products,
   };
 }

@@ -1,10 +1,20 @@
 import { prisma } from "@/lib/db";
+import { buildImportedProductContent } from "@/lib/catalog/build-product-content";
 import { ingestProductMedia } from "@/lib/media/ingest-product-media";
 import { syncProductGallery } from "@/lib/media/sync-product-gallery";
-import { calculatePrice } from "@/lib/pricing/calculate-price";
+import {
+  convertCurrency,
+  normalizeImportedPrice,
+} from "@/lib/pricing/normalize-price";
+import { parseSpecs } from "@/lib/utils/json";
 import { evaluateCandidateQuality } from "@/lib/catalog/quality-gates";
 import { getCommerceProvider, syncProviderRegistryToDb } from "@/lib/suppliers/providers/registry";
-import type { ProductSearchResult, ProviderKey, SupplierMedia } from "@/lib/suppliers/providers/types";
+import type {
+  ProductSearchResult,
+  ProviderKey,
+  SupplierMedia,
+  SupplierProductVariant,
+} from "@/lib/suppliers/providers/types";
 import { scoreCandidate } from "@/lib/suppliers/catalog/score-candidate";
 import { toJson } from "@/lib/utils/json";
 
@@ -60,11 +70,12 @@ export async function discoverProductsForStore(
 
   for (const result of results) {
     try {
+      const detailedResult = await getDetailedResult(provider, result, summary);
       const candidate = await upsertCandidateFromResult({
         storeId: store.id,
         categoryId: input.categoryId,
         providerKey: provider.key,
-        result,
+        result: detailedResult,
         providerReliability: providerRecord?.reliabilityScore ?? 0.75,
         existingTitles: existingProducts.map((product) => product.title),
         minScore: settings?.minProductScore ?? 50,
@@ -74,13 +85,13 @@ export async function discoverProductsForStore(
       if (candidate.status === "ENRICHED") summary.enriched += 1;
       if (candidate.status === "REJECTED") summary.rejected += 1;
 
-      if (result.media.length > 0) {
+      if (detailedResult.media.length > 0) {
         await ingestProductMedia({
           candidateId: candidate.id,
           providerKey: provider.key,
-          externalId: result.externalId,
-          title: result.title,
-          media: result.media,
+          externalId: detailedResult.externalId,
+          title: detailedResult.title,
+          media: detailedResult.media,
         });
       }
     } catch (error) {
@@ -89,6 +100,36 @@ export async function discoverProductsForStore(
   }
 
   return summary;
+}
+
+async function getDetailedResult(
+  provider: ReturnType<typeof getCommerceProvider>,
+  result: ProductSearchResult,
+  summary: DiscoverProductsForStoreResult
+): Promise<ProductSearchResult> {
+  if (!provider.capabilities.details) return result;
+  try {
+    const details = await provider.getProductDetails({
+      externalId: result.externalId,
+      sourceUrl: result.sourceUrl,
+    });
+    return {
+      ...result,
+      ...details,
+      media: details.media.length > 0 ? details.media : result.media,
+      variants: details.variants.length > 0 ? details.variants : result.variants,
+      signals: { ...result.signals, ...details.signals },
+      risk: { ...result.risk, ...details.risk },
+      rawData: details.rawData ?? result.rawData,
+    };
+  } catch (error) {
+    summary.errors.push(
+      `Details fetch failed for ${provider.key}/${result.externalId}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`
+    );
+    return result;
+  }
 }
 
 export async function upsertCandidateFromResult(input: {
@@ -241,25 +282,43 @@ export async function importCandidateToProduct(candidateId: string): Promise<str
   if (!category) throw new Error("Store has no category for imported product.");
 
   const media = parseSupplierMedia(candidate.mediaJson);
+  const variants = parseSupplierVariants(candidate.variantsJson);
+  const defaultVariant = variants.find((variant) => variant.stockStatus !== "OUT_OF_STOCK") ?? variants[0];
   const storedPrimary = candidate.mediaAssets.find(
     (asset) => asset.mediaType === "IMAGE" && asset.ingestionStatus === "STORED" && asset.storageUrl
   );
-  const title = candidate.titleEnhanced ?? candidate.titleRaw;
-  const description =
-    candidate.descriptionEnhanced ??
-    candidate.descriptionRaw ??
-    `${title} selected for ${candidate.store.name}. Supplier details are pending editorial review.`;
-  const price =
-    candidate.priceRaw ??
-    calculatePrice({
-      supplierCost: candidate.supplierCost ?? 10,
-      shippingCost: candidate.shippingCost ?? 0,
-      targetMargin: 0.35,
-    }).price;
-  const cost = candidate.supplierCost ?? Math.round(price * 0.55 * 100) / 100;
-  const shippingCost = candidate.shippingCost ?? 0;
-  const marginPercent =
-    candidate.marginPercent ?? Math.round(((price - cost - shippingCost) / price) * 1000) / 10;
+  const supplierCurrency = candidate.currencyRaw ?? candidate.store.currency;
+  const norm = normalizeImportedPrice({
+    supplierCost: candidate.supplierCost ?? defaultVariant?.supplierCost ?? null,
+    supplierPrice: candidate.priceRaw ?? defaultVariant?.price ?? null,
+    shippingCost: candidate.shippingCost ?? defaultVariant?.shippingCost ?? null,
+    supplierCurrency,
+    storeCurrency: candidate.store.currency,
+    targetMargin: 0.35,
+  });
+  const { price, cost, shippingCost, marginPercent } = norm;
+
+  // Build store-specific premium copy from supplier facts (Section B). Keeps the
+  // raw supplier text out of the storefront while preserving it for audit below.
+  const content = await buildImportedProductContent({
+    storeName: candidate.store.name,
+    niche: candidate.store.niche,
+    audience: candidate.store.audience,
+    brandVoice: candidate.store.brandVoice,
+    categoryName: category.name,
+    rawTitle: candidate.titleEnhanced ?? candidate.titleRaw,
+    rawDescription: candidate.descriptionRaw,
+    brand: candidate.brandRaw,
+    specs: parseSpecs(candidate.specsJson),
+    variantOptionSummaries: variants
+      .map((variant) => variant.optionSummary ?? variant.title ?? "")
+      .filter(Boolean),
+    shippingDaysMin: candidate.shippingDaysMin ?? candidate.store.defaultShippingDaysMin,
+    shippingDaysMax: candidate.shippingDaysMax ?? candidate.store.defaultShippingDaysMax,
+    countryOfOrigin: candidate.countryOfOrigin,
+  });
+
+  const title = content.title;
   const slug = await uniqueProductSlug(candidate.storeId, slugify(title));
   const sku = candidate.skuCandidate ?? `${candidate.providerKey.toUpperCase()}-${candidate.externalId.slice(-10)}`;
 
@@ -269,20 +328,20 @@ export async function importCandidateToProduct(candidateId: string): Promise<str
       categoryId: category.id,
       slug,
       title,
-      subtitle: candidate.brandRaw ? `Supplier: ${candidate.brandRaw}` : "",
-      description,
-      shortDescription: description.slice(0, 160),
+      subtitle: content.subtitle,
+      description: content.description,
+      shortDescription: content.shortDescription,
       brand: candidate.brandRaw ?? candidate.store.name,
       sku,
       gtin: candidate.gtin,
       imageUrl: storedPrimary?.storageUrl ?? media[0]?.url ?? `/api/placeholder?label=${encodeURIComponent(title)}`,
-      imageAlt: storedPrimary?.alt ?? title,
+      imageAlt: storedPrimary?.alt ?? content.imageAlt,
       price,
-      currency: candidate.currencyRaw ?? candidate.store.currency,
+      currency: norm.currency,
       cost,
       shippingCost,
       marginPercent,
-      stockStatus: normalizeStockStatus(candidate.stockStatus),
+      stockStatus: normalizeProductStockStatus(candidate.stockStatus, variants),
       supplierName: candidate.providerKey,
       supplierProductId: candidate.externalId,
       supplierSource: candidate.providerKey,
@@ -298,24 +357,72 @@ export async function importCandidateToProduct(candidateId: string): Promise<str
         candidateId: candidate.id,
         signals: candidate.signalsJson,
         risk: candidate.riskJson,
+        // Raw supplier copy preserved for audit; never shown on the storefront.
+        rawTitle: candidate.titleRaw,
+        rawDescription: candidate.descriptionRaw,
+        supplierCurrency,
+        currencyConverted: norm.converted,
+        contentFactScore: content.factScore,
+        guardrailFlags: content.guardrailFlags,
       }),
       mediaStatus: storedPrimary ? "OK" : "PENDING",
-      qualityStatus: "NEEDS_REVIEW",
+      qualityStatus: content.qualityStatus,
       shippingDaysMin: candidate.shippingDaysMin ?? candidate.store.defaultShippingDaysMin,
       shippingDaysMax: candidate.shippingDaysMax ?? candidate.store.defaultShippingDaysMax,
       countryOfOrigin: candidate.countryOfOrigin,
-      specs: candidate.specsJson,
-      useCases: toJson([]),
-      faq: toJson([]),
-      pros: toJson([]),
-      cons: toJson([]),
-      seoTitle: `${title} | ${candidate.store.name}`,
-      seoDescription: description.slice(0, 155),
+      specs: toJson(content.specs),
+      useCases: toJson(content.useCases),
+      faq: toJson(content.faq),
+      pros: toJson(content.pros),
+      cons: toJson(content.cons),
+      seoTitle: content.seoTitle,
+      seoDescription: content.seoDescription,
       productScore: candidate.score,
       isPublished: false,
-      noindex: true,
+      noindex: content.noindex,
     },
   });
+
+  if (variants.length > 0) {
+    await prisma.productVariant.createMany({
+      data: variants.map((variant, index) => {
+        const variantNorm =
+          variant.supplierCost != null || variant.price != null
+            ? normalizeImportedPrice({
+                supplierCost: variant.supplierCost ?? null,
+                supplierPrice: variant.price ?? null,
+                shippingCost: variant.shippingCost ?? candidate.shippingCost ?? null,
+                supplierCurrency,
+                storeCurrency: candidate.store.currency,
+                targetMargin: 0.35,
+              })
+            : null;
+        return {
+        productId: product.id,
+        providerKey: candidate.providerKey,
+        externalId: candidate.externalId,
+        externalVariantId: variant.externalVariantId,
+        sku: variant.sku,
+        title: variant.title ?? variant.optionSummary ?? variant.sku ?? `${title} variant ${index + 1}`,
+        optionSummary:
+          variant.optionSummary ??
+          variant.title ??
+          variant.sku ??
+          `Variant ${index + 1}`,
+        optionsJson: toJson(normalizeVariantOptions(variant.options)),
+        price: variantNorm?.price ?? null,
+        cost: variantNorm?.cost ?? convertCurrency(variant.supplierCost, supplierCurrency, candidate.store.currency),
+        shippingCost: convertCurrency(variant.shippingCost, supplierCurrency, candidate.store.currency),
+        stockStatus: normalizeStockStatus(variant.stockStatus ?? "IN_STOCK"),
+        inventoryQuantity: variant.inventoryQuantity,
+        imageUrl: variant.imageUrl,
+        sortOrder: index,
+        isDefault: defaultVariant === variant || (!defaultVariant && index === 0),
+        rawDataJson: toJson(variant.rawData ?? variant),
+        };
+      }),
+    });
+  }
 
   const storedAssets = candidate.mediaAssets.filter((asset) => asset.ingestionStatus === "STORED");
   if (storedAssets.length > 0) {
@@ -370,9 +477,44 @@ function parseSupplierMedia(raw: string): SupplierMedia[] {
   }
 }
 
+function parseSupplierVariants(raw: string): SupplierProductVariant[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((entry): entry is SupplierProductVariant => Boolean(entry) && typeof entry === "object")
+          .map((entry) => ({
+            ...entry,
+            options: normalizeVariantOptions(entry.options),
+          }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeStockStatus(value: string): "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" | "PREORDER" {
   if (value === "LOW_STOCK" || value === "OUT_OF_STOCK" || value === "PREORDER") return value;
   return "IN_STOCK";
+}
+
+function normalizeProductStockStatus(
+  candidateStatus: string,
+  variants: SupplierProductVariant[]
+): "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" | "PREORDER" {
+  if (variants.length > 0 && variants.every((variant) => variant.stockStatus === "OUT_OF_STOCK")) {
+    return "OUT_OF_STOCK";
+  }
+  return normalizeStockStatus(candidateStatus);
+}
+
+function normalizeVariantOptions(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, optionValue]) => [key, optionValue])
+  );
 }
 
 function fulfillmentModeForCandidate(providerKey: string): "AFFILIATE" | "MANUAL" | "MOCK" | "DROPSHIP" {

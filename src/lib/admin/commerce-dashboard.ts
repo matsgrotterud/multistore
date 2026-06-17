@@ -65,7 +65,21 @@ export async function getAdminOrders(limit = 50) {
       store: { select: { slug: true, name: true } },
       customer: { select: { email: true, name: true } },
       supplierOrders: true,
-      items: { select: { titleSnapshot: true, quantity: true, status: true, fulfillmentMode: true } },
+      items: {
+        select: {
+          id: true,
+          titleSnapshot: true,
+          quantity: true,
+          status: true,
+          fulfillmentMode: true,
+          providerKey: true,
+          externalId: true,
+          externalVariantId: true,
+          optionSummarySnapshot: true,
+          skuSnapshot: true,
+          unitPrice: true,
+        },
+      },
     },
   });
 }

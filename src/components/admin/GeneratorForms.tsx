@@ -140,7 +140,8 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
       </p>
       <ul className="mt-3 space-y-1 text-xs">
         <li>
-          {result.categoriesCreated} categories · {result.productsImported} products imported ·{" "}
+          {result.categoriesCreated} categories · {result.productsDiscovered} discovered ·{" "}
+          {result.candidatesRejected} rejected · {result.productsImported} imported ·{" "}
           {result.productsPublished} published · {result.guidesCreated} guide
         </li>
         {result.plannedDomain ? (
@@ -152,6 +153,58 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
           <li>No planned domain yet — using test preview URLs only</li>
         )}
       </ul>
+
+      {result.rejectionReasons.length > 0 && (
+        <div className="mt-3 rounded-md bg-emerald-100/60 p-3 text-xs">
+          <p className="font-semibold">Why candidates were rejected</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {result.rejectionReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-emerald-800">
+            Tip: if many were rejected, try a broader or more specific product query for this niche.
+          </p>
+        </div>
+      )}
+
+      {result.products.length > 0 && (
+        <div className="mt-3 overflow-hidden rounded-md border border-emerald-200 bg-white">
+          <table className="w-full text-left text-[11px]">
+            <thead className="bg-emerald-100 text-emerald-900">
+              <tr>
+                <th className="px-2 py-1.5 font-semibold">Product</th>
+                <th className="px-2 py-1.5 font-semibold">Imgs</th>
+                <th className="px-2 py-1.5 font-semibold">Vars</th>
+                <th className="px-2 py-1.5 font-semibold">Pub</th>
+                <th className="px-2 py-1.5 font-semibold">Checkout</th>
+                <th className="px-2 py-1.5 font-semibold">Open</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-emerald-100 text-emerald-950">
+              {result.products.map((product) => (
+                <tr key={product.slug}>
+                  <td className="px-2 py-1.5">{product.title}</td>
+                  <td className="px-2 py-1.5">{product.imageCount}</td>
+                  <td className="px-2 py-1.5">{product.variantCount}</td>
+                  <td className="px-2 py-1.5">{product.published ? "yes" : "no"}</td>
+                  <td className="px-2 py-1.5">{product.checkoutAvailable ? "yes" : "no"}</td>
+                  <td className="px-2 py-1.5">
+                    <a
+                      href={product.previewPath}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium underline hover:text-emerald-700"
+                    >
+                      view
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         <a
           href={result.previewUrl}
@@ -427,8 +480,8 @@ export function GeneratorForms() {
             <div className="mt-6 rounded-lg border border-slate-200 p-4">
               <h3 className="font-bold">3. Create store in database</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Builds the tenant with theme, categories, mock supplier products, FAQ and a starter
-                guide. Preview mode = noindex until you go Live.
+                Builds the tenant with theme, categories, configured supplier products, FAQ and a
+                starter guide. Preview mode = noindex until you go Live.
               </p>
               <div className="mt-3 flex flex-wrap gap-4 text-sm">
                 <label className="flex items-center gap-2">
@@ -437,7 +490,7 @@ export function GeneratorForms() {
                     checked={importProducts}
                     onChange={(event) => setImportProducts(event.target.checked)}
                   />
-                  Import mock supplier products
+                  Import supplier products from configured providers
                 </label>
                 <label className="flex items-center gap-2">
                   <input

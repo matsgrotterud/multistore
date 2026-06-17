@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { estimateShippingCost, useCart } from "@/lib/cart/cart-context";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
+import { productRelPath } from "@/lib/stores/storefront-links";
 
 export function CartPageContent({
   locale,
@@ -31,10 +32,10 @@ export function CartPageContent({
           actually use them.
         </p>
         <div className="mt-2 flex gap-3">
-          <Link href="/" className="btn-primary">
+          <Link href={cart.href("/")} className="btn-primary">
             Browse products
           </Link>
-          <Link href="/quiz" className="btn-secondary">
+          <Link href={cart.href("/quiz")} className="btn-secondary">
             Take the quiz
           </Link>
         </div>
@@ -50,7 +51,7 @@ export function CartPageContent({
     <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
       <ul className="card divide-y divide-ink/10">
         {cart.items.map((item) => (
-          <li key={item.productId} className="flex gap-4 p-5">
+          <li key={item.lineId} className="flex gap-4 p-5">
             <img
               src={item.imageUrl}
               alt={item.imageAlt}
@@ -58,11 +59,14 @@ export function CartPageContent({
             />
             <div className="min-w-0 flex-1">
               <Link
-                href={`/p/${item.slug}`}
+                href={cart.href(productRelPath(item.slug, item.categorySlug))}
                 className="text-sm font-semibold text-ink hover:text-primary"
               >
                 {item.title}
               </Link>
+              {item.optionSummary && (
+                <p className="mt-1 text-xs font-medium text-ink/70">{item.optionSummary}</p>
+              )}
               <p className="mt-1 text-xs text-ink/60">
                 Delivery in {item.shippingDaysMin}–{item.shippingDaysMax} business days
               </p>
@@ -72,7 +76,7 @@ export function CartPageContent({
                     type="button"
                     className="px-3 py-1.5 text-sm hover:bg-ink/5"
                     aria-label={`Decrease quantity of ${item.title}`}
-                    onClick={() => cart.updateQuantity(item.productId, item.quantity - 1)}
+                    onClick={() => cart.updateQuantity(item.lineId, item.quantity - 1)}
                   >
                     −
                   </button>
@@ -81,7 +85,7 @@ export function CartPageContent({
                     type="button"
                     className="px-3 py-1.5 text-sm hover:bg-ink/5"
                     aria-label={`Increase quantity of ${item.title}`}
-                    onClick={() => cart.updateQuantity(item.productId, item.quantity + 1)}
+                    onClick={() => cart.updateQuantity(item.lineId, item.quantity + 1)}
                   >
                     +
                   </button>
@@ -89,7 +93,7 @@ export function CartPageContent({
                 <button
                   type="button"
                   className="text-xs text-ink/50 underline hover:text-red-600"
-                  onClick={() => cart.removeItem(item.productId)}
+                  onClick={() => cart.removeItem(item.lineId)}
                 >
                   Remove
                 </button>
@@ -127,7 +131,7 @@ export function CartPageContent({
         <p className="mt-3 text-xs leading-5 text-ink/60">
           Estimated delivery: {minDays}–{maxDays} business days. {shippingNote}
         </p>
-        <Link href="/checkout" className="btn-primary mt-5 w-full">
+        <Link href={cart.href("/checkout")} className="btn-primary mt-5 w-full">
           Go to checkout
         </Link>
       </aside>

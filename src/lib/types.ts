@@ -42,10 +42,25 @@ export function isStockStatus(value: string): value is StockStatus {
   return (STOCK_STATUSES as readonly string[]).includes(value);
 }
 
+export interface ClientProductVariant {
+  id: string;
+  title: string;
+  optionSummary: string;
+  options: Record<string, string>;
+  sku: string | null;
+  externalVariantId: string | null;
+  price: number | null;
+  compareAtPrice: number | null;
+  stockStatus: string;
+  imageUrl: string | null;
+  isDefault: boolean;
+}
+
 /** Minimal product shape that is safe to serialize to client components. */
 export interface ClientProduct {
   id: string;
   slug: string;
+  categorySlug: string | null;
   title: string;
   subtitle: string;
   brand: string;
@@ -64,4 +79,5 @@ export interface ClientProduct {
   affiliateUrl: string | null;
   providerKey: string | null;
   checkoutAvailable: boolean;
+  variants: ClientProductVariant[];
 }

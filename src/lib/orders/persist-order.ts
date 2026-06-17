@@ -55,9 +55,14 @@ export async function persistOrderFromCheckout(
       items: {
         create: checkout.lines.map((line) => ({
           productId: line.productId,
+          variantId: line.variantId,
           quantity: line.quantity,
-          titleSnapshot: line.title,
+          titleSnapshot:
+            line.optionSummary ? `${line.title} (${line.optionSummary})` : line.title,
           skuSnapshot: line.sku,
+          variantSnapshotJson: toJson(line.variantSnapshot),
+          externalVariantId: line.externalVariantId,
+          optionSummarySnapshot: line.optionSummary,
           unitPrice: line.unitPrice,
           unitCost: line.unitCost,
           providerKey: line.providerKey,

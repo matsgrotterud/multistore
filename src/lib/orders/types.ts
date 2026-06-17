@@ -32,6 +32,7 @@ export type FulfillmentMode = (typeof FULFILLMENT_MODES)[number];
 
 export interface CheckoutLineInput {
   productId: string;
+  variantId?: string;
   quantity: number;
 }
 
@@ -46,9 +47,14 @@ export interface CheckoutCustomerInput {
 
 export interface PreparedCheckoutLine {
   productId: string;
+  variantId: string | null;
   title: string;
   slug: string;
   sku: string;
+  variantTitle: string | null;
+  optionSummary: string | null;
+  externalVariantId: string | null;
+  variantSnapshot: Record<string, unknown>;
   quantity: number;
   unitPrice: number;
   unitCost: number;

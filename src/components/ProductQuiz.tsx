@@ -11,6 +11,7 @@ import {
   type QuizQuestion,
 } from "@/lib/quiz/quiz-config";
 import { useCart } from "@/lib/cart/cart-context";
+import { productRelPath } from "@/lib/stores/storefront-links";
 import type { ClientProduct } from "@/lib/types";
 
 export function ProductQuiz({
@@ -100,7 +101,7 @@ export function ProductQuiz({
                     {index === 0 ? "Best match" : `Match #${index + 1}`}
                   </p>
                   <Link
-                    href={`/p/${product.slug}`}
+                    href={cart.href(productRelPath(product.slug, product.categorySlug))}
                     className="mt-0.5 block text-sm font-semibold text-ink hover:text-primary"
                   >
                     {product.title}
@@ -120,6 +121,7 @@ export function ProductQuiz({
                       cart.addItem({
                         productId: product.id,
                         slug: product.slug,
+                        categorySlug: product.categorySlug,
                         title: product.title,
                         price: product.price,
                         currency: product.currency,

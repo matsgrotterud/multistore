@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { estimateShippingCost, useCart } from "@/lib/cart/cart-context";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
+import { productRelPath } from "@/lib/stores/storefront-links";
 
 export function CartDrawer({ locale }: { locale: string }) {
   const cart = useCart();
@@ -53,7 +54,7 @@ export function CartDrawer({ locale }: { locale: string }) {
             <p className="text-sm text-ink/60">
               Browse the catalog or take the product quiz to find a good fit.
             </p>
-            <Link href="/quiz" className="btn-secondary" onClick={cart.closeDrawer}>
+            <Link href={cart.href("/quiz")} className="btn-secondary" onClick={cart.closeDrawer}>
               Take the quiz
             </Link>
           </div>
@@ -61,7 +62,7 @@ export function CartDrawer({ locale }: { locale: string }) {
           <>
             <ul className="flex-1 divide-y divide-ink/10 overflow-y-auto px-5">
               {cart.items.map((item) => (
-                <li key={item.productId} className="flex gap-4 py-4">
+                <li key={item.lineId} className="flex gap-4 py-4">
                   <img
                     src={item.imageUrl}
                     alt={item.imageAlt}
@@ -69,12 +70,17 @@ export function CartDrawer({ locale }: { locale: string }) {
                   />
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={`/p/${item.slug}`}
+                      href={cart.href(productRelPath(item.slug, item.categorySlug))}
                       onClick={cart.closeDrawer}
                       className="block truncate text-sm font-medium text-ink hover:text-primary"
                     >
                       {item.title}
                     </Link>
+                    {item.optionSummary && (
+                      <p className="mt-0.5 text-xs font-medium text-ink/70">
+                        {item.optionSummary}
+                      </p>
+                    )}
                     <p className="mt-0.5 text-xs text-ink/60">
                       {item.shippingDaysMin}–{item.shippingDaysMax} business days
                     </p>
@@ -84,7 +90,7 @@ export function CartDrawer({ locale }: { locale: string }) {
                           type="button"
                           className="px-2.5 py-1 text-sm hover:bg-ink/5"
                           aria-label={`Decrease quantity of ${item.title}`}
-                          onClick={() => cart.updateQuantity(item.productId, item.quantity - 1)}
+                          onClick={() => cart.updateQuantity(item.lineId, item.quantity - 1)}
                         >
                           −
                         </button>
@@ -95,7 +101,7 @@ export function CartDrawer({ locale }: { locale: string }) {
                           type="button"
                           className="px-2.5 py-1 text-sm hover:bg-ink/5"
                           aria-label={`Increase quantity of ${item.title}`}
-                          onClick={() => cart.updateQuantity(item.productId, item.quantity + 1)}
+                          onClick={() => cart.updateQuantity(item.lineId, item.quantity + 1)}
                         >
                           +
                         </button>
@@ -107,7 +113,7 @@ export function CartDrawer({ locale }: { locale: string }) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => cart.removeItem(item.productId)}
+                    onClick={() => cart.removeItem(item.lineId)}
                     className="self-start text-xs text-ink/50 underline hover:text-red-600"
                     aria-label={`Remove ${item.title} from cart`}
                   >
@@ -134,10 +140,10 @@ export function CartDrawer({ locale }: { locale: string }) {
                 </div>
               </dl>
               <div className="mt-4 grid gap-2">
-                <Link href="/checkout" className="btn-primary" onClick={cart.closeDrawer}>
+                <Link href={cart.href("/checkout")} className="btn-primary" onClick={cart.closeDrawer}>
                   Go to checkout
                 </Link>
-                <Link href="/cart" className="btn-secondary" onClick={cart.closeDrawer}>
+                <Link href={cart.href("/cart")} className="btn-secondary" onClick={cart.closeDrawer}>
                   View cart
                 </Link>
               </div>

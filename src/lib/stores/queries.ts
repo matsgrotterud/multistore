@@ -1,10 +1,14 @@
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
 import { getStoreBySlug, type StoreWithTheme } from "@/lib/tenant/resolve-tenant";
-import { parseStringArray } from "@/lib/utils/json";
+import { parseJsonObject, parseStringArray } from "@/lib/utils/json";
 import type { ClientProduct } from "@/lib/types";
-import type { Product } from "@prisma/client";
+import type { Product, ProductVariant } from "@prisma/client";
+
+/** A catalog product enriched with just its category slug for link building. */
+export type CatalogProduct = Product & { category?: { slug: string } | null };
 
 /**
  * Data access layer for storefront pages. All queries are store-scoped so a
@@ -48,22 +52,33 @@ export const getProductBySlug = cache(async (storeId: string, slug: string) => {
     include: {
       category: true,
       images: { orderBy: { sortOrder: "asc" } },
+      mediaAssets: {
+        where: { ingestionStatus: "STORED", storageUrl: { not: null } },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
+      variants: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
     },
   });
 });
 
 export const getFeaturedProducts = cache(
-  async (storeId: string, limit = 8) => {
+  async (storeId: string, limit = 8): Promise<CatalogProduct[]> => {
     return prisma.product.findMany({
       where: { storeId, isPublished: true },
       orderBy: { productScore: "desc" },
       take: limit,
+      include: { category: { select: { slug: true } } },
     });
   }
 );
 
 export const getRelatedProducts = cache(
-  async (storeId: string, categoryId: string, excludeProductId: string, limit = 4) => {
+  async (
+    storeId: string,
+    categoryId: string,
+    excludeProductId: string,
+    limit = 4
+  ): Promise<CatalogProduct[]> => {
     const sameCategory = await prisma.product.findMany({
       where: {
         storeId,
@@ -73,6 +88,7 @@ export const getRelatedProducts = cache(
       },
       orderBy: { productScore: "desc" },
       take: limit,
+      include: { category: { select: { slug: true } } },
     });
     if (sameCategory.length >= limit) return sameCategory;
 
@@ -84,6 +100,7 @@ export const getRelatedProducts = cache(
       },
       orderBy: { productScore: "desc" },
       take: limit - sameCategory.length,
+      include: { category: { select: { slug: true } } },
     });
     return [...sameCategory, ...filler];
   }
@@ -115,20 +132,25 @@ export const getHomepageFaq = cache(async (storeId: string) => {
 });
 
 export const getProductsByIds = cache(
-  async (storeId: string, ids: string[]) => {
+  async (storeId: string, ids: string[]): Promise<CatalogProduct[]> => {
     if (ids.length === 0) return [];
     const products = await prisma.product.findMany({
       where: { storeId, id: { in: ids }, isPublished: true },
+      include: { category: { select: { slug: true } } },
     });
     // Preserve the order of the ids array.
+    type Loaded = (typeof products)[number];
     const byId = new Map(products.map((product) => [product.id, product]));
     return ids
       .map((id) => byId.get(id))
-      .filter((product): product is Product => Boolean(product));
+      .filter((product): product is Loaded => Boolean(product));
   }
 );
 
-export async function searchProducts(storeId: string, query: string) {
+export async function searchProducts(
+  storeId: string,
+  query: string
+): Promise<CatalogProduct[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
   return prisma.product.findMany({
@@ -144,14 +166,21 @@ export async function searchProducts(storeId: string, query: string) {
     },
     orderBy: { productScore: "desc" },
     take: 24,
+    include: { category: { select: { slug: true } } },
   });
 }
 
+type ProductWithVariants = Product & {
+  variants?: ProductVariant[];
+  category?: { slug: string } | null;
+};
+
 /** Strip server-only fields (cost, margin) before sending to the client. */
-export function toClientProduct(product: Product): ClientProduct {
+export function toClientProduct(product: ProductWithVariants): ClientProduct {
   return {
     id: product.id,
     slug: product.slug,
+    categorySlug: product.category?.slug ?? null,
     title: product.title,
     subtitle: product.subtitle,
     brand: product.brand,
@@ -170,6 +199,19 @@ export function toClientProduct(product: Product): ClientProduct {
     affiliateUrl: product.affiliateUrl,
     providerKey: product.providerKey,
     checkoutAvailable: checkoutAvailableForProduct(product),
+    variants: (product.variants ?? []).map((variant) => ({
+      id: variant.id,
+      title: variant.title,
+      optionSummary: variant.optionSummary,
+      options: normalizeVariantOptions(variant.optionsJson),
+      sku: variant.sku,
+      externalVariantId: variant.externalVariantId,
+      price: variant.price,
+      compareAtPrice: variant.compareAtPrice,
+      stockStatus: variant.stockStatus,
+      imageUrl: variant.imageUrl,
+      isDefault: variant.isDefault,
+    })),
   };
 }
 
@@ -185,14 +227,24 @@ function checkoutAvailableForProduct(product: Product): boolean {
   switch (product.providerKey) {
     case "cj":
       return (
-        process.env.CJ_ENABLED === "true" &&
-        process.env.CJ_ORDER_API_ENABLED === "true" &&
-        Boolean(process.env.CJ_LOGISTIC_NAME) &&
-        Boolean(process.env.CJ_FROM_COUNTRY_CODE)
+        (process.env.CJ_ENABLED === "true" &&
+          process.env.CJ_ORDER_API_ENABLED === "true" &&
+          Boolean(process.env.CJ_LOGISTIC_NAME) &&
+          Boolean(process.env.CJ_FROM_COUNTRY_CODE)) ||
+        isCjManualFulfillmentEnabled()
       );
     case "mock":
       return true;
     default:
       return false;
   }
+}
+
+function normalizeVariantOptions(raw: string): Record<string, string> {
+  const parsed = parseJsonObject(raw);
+  return Object.fromEntries(
+    Object.entries(parsed)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, value]) => [key, value])
+  );
 }

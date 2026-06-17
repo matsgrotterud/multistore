@@ -16,6 +16,7 @@ import {
   getProductsByIds,
   requireStore,
 } from "@/lib/stores/queries";
+import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
 import { parseStringArray } from "@/lib/utils/json";
 import type { FaqItem } from "@/lib/types";
 
@@ -83,8 +84,8 @@ export default async function GuidePage({ params }: GuidePageProps) {
 
       <Breadcrumbs
         items={[
-          { name: "Home", href: "/" },
-          { name: "Guides", href: "/guides" },
+          { name: "Home", href: storefrontHref(store, "/") },
+          { name: "Guides", href: storefrontHref(store, "/guides") },
           { name: guide.title },
         ]}
       />
@@ -118,6 +119,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
                 <div className="mt-4">
                   <ComparisonTable
                     products={recommendedProducts.slice(0, 3)}
+                    store={store}
                     locale={store.locale}
                   />
                 </div>
@@ -130,6 +132,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
                 <div className="mt-4">
                   <ProductGrid
                     products={recommendedProducts}
+                    store={store}
                     locale={store.locale}
                   />
                 </div>
@@ -171,7 +174,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
                   {categories.map((category) => (
                     <li key={category.id}>
                       <Link
-                        href={`/c/${category.slug}`}
+                        href={categoryHref(store, category.slug)}
                         className="text-primary hover:underline"
                       >
                         {category.name}

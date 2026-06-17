@@ -32,6 +32,18 @@ export async function ingestProductMedia(
 
   for (const [index, item] of sortedMedia.entries()) {
     try {
+      const existingForTarget = await prisma.productMediaAsset.findFirst({
+        where: {
+          sourceUrl: item.url,
+          ...(input.productId ? { productId: input.productId } : {}),
+          ...(input.candidateId ? { candidateId: input.candidateId } : {}),
+        },
+      });
+      if (existingForTarget?.ingestionStatus === "STORED") {
+        result.skipped += 1;
+        continue;
+      }
+
       const fetched = await fetchMedia(item.url);
       const existingByHash = await prisma.productMediaAsset.findFirst({
         where: {
@@ -63,6 +75,7 @@ export async function ingestProductMedia(
           sourceUrl: item.url,
           storageUrl,
           storageKey,
+          thumbnailUrl: item.thumbnailUrl,
           alt: item.alt ?? `${input.title} image ${index + 1}`,
           sortOrder: item.sortOrder ?? index,
           isPrimary: index === 0,
@@ -84,6 +97,7 @@ export async function ingestProductMedia(
           externalId: input.externalId,
           mediaType: item.mediaType ?? "IMAGE",
           sourceUrl: item.url,
+          thumbnailUrl: item.thumbnailUrl,
           alt: item.alt ?? `${input.title} image ${index + 1}`,
           sortOrder: item.sortOrder ?? index,
           isPrimary: index === 0,
@@ -101,4 +115,3 @@ export async function ingestProductMedia(
 
   return result;
 }
-

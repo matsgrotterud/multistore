@@ -17,9 +17,16 @@ import {
  */
 
 export interface CartItem {
+  lineId: string;
   productId: string;
+  variantId?: string;
   slug: string;
+  categorySlug?: string | null;
   title: string;
+  variantTitle?: string;
+  optionSummary?: string;
+  sku?: string | null;
+  externalVariantId?: string | null;
   price: number;
   currency: string;
   imageUrl: string;
@@ -29,17 +36,23 @@ export interface CartItem {
   quantity: number;
 }
 
+export type CartItemInput = Omit<CartItem, "lineId" | "quantity">;
+
 interface CartContextValue {
   storeSlug: string;
+  /** `/s/[slug]` for preview stores, "" for live. Prefix for in-store links. */
+  basePath: string;
+  /** Build an in-store href that preserves tenant context in preview mode. */
+  href: (path?: string) => string;
   items: CartItem[];
   itemCount: number;
   subtotal: number;
   currency: string;
   isDrawerOpen: boolean;
   isHydrated: boolean;
-  addItem: (item: Omit<CartItem, "quantity">, quantity?: number) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addItem: (item: CartItemInput, quantity?: number) => void;
+  removeItem: (lineId: string) => void;
+  updateQuantity: (lineId: string, quantity: number) => void;
   clearCart: () => void;
   openDrawer: () => void;
   closeDrawer: () => void;
@@ -47,13 +60,49 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
+function lineIdFor(productId: string, variantId?: string): string {
+  return `${productId}:${variantId ?? "default"}`;
+}
+
+function hydrateCartItems(rawItems: unknown): CartItem[] {
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems
+    .filter((entry): entry is Partial<CartItem> => Boolean(entry) && typeof entry === "object")
+    .filter((entry) => typeof entry.productId === "string" && typeof entry.title === "string")
+    .map((entry) => ({
+      lineId: typeof entry.lineId === "string" ? entry.lineId : lineIdFor(entry.productId!, entry.variantId),
+      productId: entry.productId!,
+      variantId: entry.variantId,
+      slug: entry.slug ?? "",
+      categorySlug: typeof entry.categorySlug === "string" ? entry.categorySlug : null,
+      title: entry.title!,
+      variantTitle: entry.variantTitle,
+      optionSummary: entry.optionSummary,
+      sku: entry.sku,
+      externalVariantId: entry.externalVariantId,
+      price: typeof entry.price === "number" ? entry.price : 0,
+      currency: entry.currency ?? "USD",
+      imageUrl: entry.imageUrl ?? "/api/placeholder?label=Product",
+      imageAlt: entry.imageAlt ?? entry.title!,
+      shippingDaysMin: typeof entry.shippingDaysMin === "number" ? entry.shippingDaysMin : 7,
+      shippingDaysMax: typeof entry.shippingDaysMax === "number" ? entry.shippingDaysMax : 18,
+      quantity:
+        typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
+          ? Math.max(1, Math.min(entry.quantity, 99))
+          : 1,
+    }));
+}
+
 export function CartProvider({
   storeSlug,
   currency,
+  basePath = "",
   children,
 }: {
   storeSlug: string;
   currency: string;
+  /** `/s/[slug]` for preview stores, "" for live (clean URLs). */
+  basePath?: string;
   children: ReactNode;
 }) {
   const storageKey = `msdf_cart_${storeSlug}`;
@@ -65,8 +114,7 @@ export function CartProvider({
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (raw) {
-        const parsed = JSON.parse(raw) as CartItem[];
-        if (Array.isArray(parsed)) setItems(parsed);
+        setItems(hydrateCartItems(JSON.parse(raw)));
       }
     } catch {
       /* corrupted cart -> start fresh */
@@ -84,33 +132,34 @@ export function CartProvider({
   }, [items, isHydrated, storageKey]);
 
   const addItem = useCallback(
-    (item: Omit<CartItem, "quantity">, quantity = 1) => {
+    (item: CartItemInput, quantity = 1) => {
+      const lineId = lineIdFor(item.productId, item.variantId);
       setItems((current) => {
-        const existing = current.find((entry) => entry.productId === item.productId);
+        const existing = current.find((entry) => entry.lineId === lineId);
         if (existing) {
           return current.map((entry) =>
-            entry.productId === item.productId
+            entry.lineId === lineId
               ? { ...entry, quantity: Math.min(entry.quantity + quantity, 99) }
               : entry
           );
         }
-        return [...current, { ...item, quantity }];
+        return [...current, { ...item, lineId, quantity: Math.min(quantity, 99) }];
       });
       setIsDrawerOpen(true);
     },
     []
   );
 
-  const removeItem = useCallback((productId: string) => {
-    setItems((current) => current.filter((entry) => entry.productId !== productId));
+  const removeItem = useCallback((lineId: string) => {
+    setItems((current) => current.filter((entry) => entry.lineId !== lineId && entry.productId !== lineId));
   }, []);
 
-  const updateQuantity = useCallback((productId: string, quantity: number) => {
+  const updateQuantity = useCallback((lineId: string, quantity: number) => {
     setItems((current) =>
       quantity <= 0
-        ? current.filter((entry) => entry.productId !== productId)
+        ? current.filter((entry) => entry.lineId !== lineId && entry.productId !== lineId)
         : current.map((entry) =>
-            entry.productId === productId
+            entry.lineId === lineId || entry.productId === lineId
               ? { ...entry, quantity: Math.min(quantity, 99) }
               : entry
           )
@@ -121,6 +170,15 @@ export function CartProvider({
   const openDrawer = useCallback(() => setIsDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
 
+  const href = useCallback(
+    (path = "/") => {
+      if (!path || path === "/") return basePath || "/";
+      const clean = path.startsWith("/") ? path : `/${path}`;
+      return `${basePath}${clean}`;
+    },
+    [basePath]
+  );
+
   const value = useMemo<CartContextValue>(() => {
     const subtotal = items.reduce(
       (sum, entry) => sum + entry.price * entry.quantity,
@@ -129,6 +187,8 @@ export function CartProvider({
     const itemCount = items.reduce((sum, entry) => sum + entry.quantity, 0);
     return {
       storeSlug,
+      basePath,
+      href,
       items,
       itemCount,
       subtotal,
@@ -144,6 +204,8 @@ export function CartProvider({
     };
   }, [
     storeSlug,
+    basePath,
+    href,
     items,
     currency,
     isDrawerOpen,

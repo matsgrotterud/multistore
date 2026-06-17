@@ -1,6 +1,5 @@
 "use client";
 
-import { ProductPurchaseActions } from "@/components/ProductPurchaseActions";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
 import type { ClientProduct } from "@/lib/types";
 
@@ -10,11 +9,9 @@ import type { ClientProduct } from "@/lib/types";
  */
 export function StickyMobileCTA({
   product,
-  storeSlug,
   locale,
 }: {
   product: ClientProduct;
-  storeSlug: string;
   locale: string;
 }) {
   const isAffiliate = product.fulfillmentMode === "AFFILIATE";
@@ -29,7 +26,9 @@ export function StickyMobileCTA({
           </p>
         </div>
         {!isAffiliate && product.checkoutAvailable && (
-          <ProductPurchaseActions product={product} storeSlug={storeSlug} size="sm" />
+          <a href="#purchase-options" className="btn-primary shrink-0 px-4 py-2 text-xs">
+            {product.variants.length > 0 ? "Choose options" : "Add to cart"}
+          </a>
         )}
         {isAffiliate && product.affiliateUrl && (
           <a

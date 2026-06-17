@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
   const products = await prisma.product.findMany({
     where: { storeId: store.id, isPublished: true },
     orderBy: { productScore: "desc" },
+    include: { category: { select: { slug: true } } },
   });
 
   const items = products
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       <g:id>${escapeXml(product.sku)}</g:id>
       <g:title>${escapeXml(product.title)}</g:title>
       <g:description>${escapeXml(product.shortDescription)}</g:description>
-      <g:link>${escapeXml(canonicalUrl(store, `/p/${product.slug}`))}</g:link>
+      <g:link>${escapeXml(canonicalUrl(store, product.category?.slug ? `/c/${product.category.slug}/p/${product.slug}` : `/p/${product.slug}`))}</g:link>
       <g:image_link>${escapeXml(absoluteUrl(store, product.imageUrl))}</g:image_link>
       <g:availability>${availability}</g:availability>
       <g:price>${product.price.toFixed(2)} ${product.currency}</g:price>

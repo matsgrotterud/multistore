@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Category, Store } from "@prisma/client";
 import { CartButton } from "@/components/CartButton";
 import { SearchBox } from "@/components/SearchBox";
+import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
 
 export function StoreHeader({
   store,
@@ -13,7 +14,7 @@ export function StoreHeader({
   return (
     <header className="sticky top-0 z-40 border-b border-ink/10 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-site items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <Link href="/" className="shrink-0" aria-label={`${store.name} home`}>
+        <Link href={storefrontHref(store, "/")} className="shrink-0" aria-label={`${store.name} home`}>
           <span className="font-heading text-xl font-extrabold tracking-tight text-primary">
             {store.logoText}
           </span>
@@ -24,7 +25,7 @@ export function StoreHeader({
             {categories.map((category) => (
               <li key={category.id}>
                 <Link
-                  href={`/c/${category.slug}`}
+                  href={categoryHref(store, category.slug)}
                   className="rounded-theme px-3 py-2 text-sm font-medium text-ink/75 transition hover:bg-primary-soft hover:text-primary"
                 >
                   {category.name}
@@ -33,7 +34,7 @@ export function StoreHeader({
             ))}
             <li>
               <Link
-                href="/guides"
+                href={storefrontHref(store, "/guides")}
                 className="rounded-theme px-3 py-2 text-sm font-medium text-ink/75 transition hover:bg-primary-soft hover:text-primary"
               >
                 Guides
@@ -41,7 +42,7 @@ export function StoreHeader({
             </li>
             <li>
               <Link
-                href="/quiz"
+                href={storefrontHref(store, "/quiz")}
                 className="rounded-theme px-3 py-2 text-sm font-medium text-ink/75 transition hover:bg-primary-soft hover:text-primary"
               >
                 Quiz
@@ -55,7 +56,7 @@ export function StoreHeader({
             <SearchBox />
           </div>
           <Link
-            href="/search"
+            href={storefrontHref(store, "/search")}
             className="rounded-theme p-2 text-ink/70 hover:bg-primary-soft hover:text-primary md:hidden"
             aria-label="Search"
           >
@@ -74,7 +75,7 @@ export function StoreHeader({
           {categories.map((category) => (
             <li key={category.id} className="shrink-0">
               <Link
-                href={`/c/${category.slug}`}
+                href={categoryHref(store, category.slug)}
                 className="rounded-full border border-ink/10 px-3 py-1.5 text-xs font-medium text-ink/75 hover:border-primary hover:text-primary"
               >
                 {category.name}
@@ -83,7 +84,7 @@ export function StoreHeader({
           ))}
           <li className="shrink-0">
             <Link
-              href="/guides"
+              href={storefrontHref(store, "/guides")}
               className="rounded-full border border-ink/10 px-3 py-1.5 text-xs font-medium text-ink/75 hover:border-primary hover:text-primary"
             >
               Guides
@@ -91,7 +92,7 @@ export function StoreHeader({
           </li>
           <li className="shrink-0">
             <Link
-              href="/quiz"
+              href={storefrontHref(store, "/quiz")}
               className="rounded-full border border-ink/10 px-3 py-1.5 text-xs font-medium text-ink/75 hover:border-primary hover:text-primary"
             >
               Quiz

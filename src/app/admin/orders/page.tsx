@@ -65,11 +65,40 @@ export default async function AdminOrdersPage() {
                 </td>
                 <td className="px-4 py-3">{order.fulfillmentStatus}</td>
                 <td className="px-4 py-3 text-xs">
-                  {order.supplierOrders.length === 0
-                    ? "—"
-                    : order.supplierOrders
-                        .map((supplierOrder) => `${supplierOrder.providerKey}:${supplierOrder.status}`)
-                        .join(", ")}
+                  <div>
+                    {order.supplierOrders.length === 0
+                      ? "—"
+                      : order.supplierOrders
+                          .map((supplierOrder) => `${supplierOrder.providerKey}:${supplierOrder.status}`)
+                          .join(", ")}
+                  </div>
+                  {order.items.length > 0 && (
+                    <div className="mt-2 space-y-1 text-slate-600">
+                      {order.items.map((item) => (
+                        <div key={item.id}>
+                          {item.quantity} x {item.titleSnapshot}
+                          {item.optionSummarySnapshot ? ` · ${item.optionSummarySnapshot}` : ""}
+                          <span className="block text-slate-400">
+                            {item.providerKey ?? "provider?"} · product {item.externalId ?? "?"} · variant{" "}
+                            {item.externalVariantId ?? item.skuSnapshot}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {order.supplierOrders.some((supplierOrder) => supplierOrder.status === "MANUAL_ACTION_REQUIRED") && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer font-medium text-amber-700">
+                        Manual CJ payload
+                      </summary>
+                      <pre className="mt-2 max-h-48 overflow-auto rounded bg-slate-50 p-2 text-[11px] text-slate-700">
+                        {order.supplierOrders
+                          .filter((supplierOrder) => supplierOrder.status === "MANUAL_ACTION_REQUIRED")
+                          .map((supplierOrder) => supplierOrder.requestJson)
+                          .join("\n\n")}
+                      </pre>
+                    </details>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-red-700">{order.paymentError ?? "—"}</td>
               </tr>

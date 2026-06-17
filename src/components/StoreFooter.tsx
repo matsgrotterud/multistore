@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Category, Store } from "@prisma/client";
+import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
 
 export function StoreFooter({
   store,
@@ -29,18 +30,18 @@ export function StoreFooter({
           <ul className="mt-3 space-y-2 text-sm">
             {categories.map((category) => (
               <li key={category.id}>
-                <Link href={`/c/${category.slug}`} className="text-white/80 hover:text-white hover:underline">
+                <Link href={categoryHref(store, category.slug)} className="text-white/80 hover:text-white hover:underline">
                   {category.name}
                 </Link>
               </li>
             ))}
             <li>
-              <Link href="/compare" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/compare")} className="text-white/80 hover:text-white hover:underline">
                 Compare top picks
               </Link>
             </li>
             <li>
-              <Link href="/quiz" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/quiz")} className="text-white/80 hover:text-white hover:underline">
                 Product finder quiz
               </Link>
             </li>
@@ -53,27 +54,27 @@ export function StoreFooter({
           </h3>
           <ul className="mt-3 space-y-2 text-sm">
             <li>
-              <Link href="/guides" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/guides")} className="text-white/80 hover:text-white hover:underline">
                 Buying guides
               </Link>
             </li>
             <li>
-              <Link href="/policies/shipping" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/policies/shipping")} className="text-white/80 hover:text-white hover:underline">
                 Shipping policy
               </Link>
             </li>
             <li>
-              <Link href="/policies/returns" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/policies/returns")} className="text-white/80 hover:text-white hover:underline">
                 Returns policy
               </Link>
             </li>
             <li>
-              <Link href="/policies/privacy" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/policies/privacy")} className="text-white/80 hover:text-white hover:underline">
                 Privacy policy
               </Link>
             </li>
             <li>
-              <Link href="/policies/terms" className="text-white/80 hover:text-white hover:underline">
+              <Link href={storefrontHref(store, "/policies/terms")} className="text-white/80 hover:text-white hover:underline">
                 Terms of sale
               </Link>
             </li>

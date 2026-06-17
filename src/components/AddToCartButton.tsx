@@ -17,9 +17,11 @@ export function AddToCartButton({
   const outOfStock = product.stockStatus === "OUT_OF_STOCK";
 
   function handleAdd() {
+    if (!cart.isHydrated) return;
     cart.addItem({
       productId: product.id,
       slug: product.slug,
+      categorySlug: product.categorySlug,
       title: product.title,
       price: product.price,
       currency: product.currency,
@@ -39,7 +41,7 @@ export function AddToCartButton({
     <button
       type="button"
       onClick={handleAdd}
-      disabled={outOfStock}
+      disabled={outOfStock || !cart.isHydrated}
       className={`btn-primary ${size === "sm" ? "px-4 py-2 text-xs" : ""} ${fullWidth ? "w-full" : ""}`}
       aria-label={
         outOfStock
@@ -49,7 +51,9 @@ export function AddToCartButton({
     >
       {outOfStock
         ? "Out of stock"
-        : product.stockStatus === "PREORDER"
+        : !cart.isHydrated
+          ? "Loading cart"
+          : product.stockStatus === "PREORDER"
           ? "Pre-order"
           : "Add to cart"}
     </button>

@@ -9,6 +9,7 @@ import { CartProvider } from "@/lib/cart/cart-context";
 import { organizationJsonLd, webSiteJsonLd } from "@/lib/seo/jsonld";
 import { buildStoreMetadata } from "@/lib/seo/metadata";
 import { getCategories, requireStore } from "@/lib/stores/queries";
+import { storefrontBase } from "@/lib/stores/storefront-links";
 import { buildThemeStyle } from "@/lib/theme";
 
 interface StoreLayoutProps {
@@ -37,7 +38,11 @@ export default async function StoreLayout({ children, params }: StoreLayoutProps
       className="flex min-h-screen flex-col bg-surface font-body text-ink"
     >
       <StructuredData data={[organizationJsonLd(store), webSiteJsonLd(store)]} />
-      <CartProvider storeSlug={store.slug} currency={store.currency}>
+      <CartProvider
+        storeSlug={store.slug}
+        currency={store.currency}
+        basePath={storefrontBase(store)}
+      >
         <StoreHeader store={store} categories={categories} />
         <main className="flex-1">{children}</main>
         <StoreFooter store={store} categories={categories} />

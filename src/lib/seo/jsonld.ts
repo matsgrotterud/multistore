@@ -54,7 +54,8 @@ export function webSiteJsonLd(store: Store): JsonLd {
 export function productJsonLd(
   store: Store,
   product: Product,
-  galleryUrls?: string[]
+  galleryUrls?: string[],
+  categorySlug?: string | null
 ): JsonLd {
   const availability =
     AVAILABILITY[product.stockStatus as StockStatus] ??
@@ -75,7 +76,10 @@ export function productJsonLd(
     ...(product.gtin ? { gtin: product.gtin } : {}),
     offers: {
       "@type": "Offer",
-      url: canonicalUrl(store, `/p/${product.slug}`),
+      url: canonicalUrl(
+        store,
+        categorySlug ? `/c/${categorySlug}/p/${product.slug}` : `/p/${product.slug}`
+      ),
       price: product.price.toFixed(2),
       priceCurrency: product.currency,
       availability,
@@ -120,7 +124,7 @@ export function breadcrumbJsonLd(
 export function itemListJsonLd(
   store: Store,
   name: string,
-  products: Product[]
+  products: Array<Product & { category?: { slug: string } | null }>
 ): JsonLd {
   return {
     "@context": "https://schema.org",
@@ -130,7 +134,12 @@ export function itemListJsonLd(
     itemListElement: products.map((product, index) => ({
       "@type": "ListItem",
       position: index + 1,
-      url: canonicalUrl(store, `/p/${product.slug}`),
+      url: canonicalUrl(
+        store,
+        product.category?.slug
+          ? `/c/${product.category.slug}/p/${product.slug}`
+          : `/p/${product.slug}`
+      ),
       name: product.title,
     })),
   };

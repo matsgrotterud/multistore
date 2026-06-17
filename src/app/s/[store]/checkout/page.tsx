@@ -4,6 +4,7 @@ import { CheckoutForm } from "@/components/CheckoutForm";
 import { PageViewTracker } from "@/components/PageViewTracker";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { requireStore } from "@/lib/stores/queries";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 
 interface CheckoutPageProps {
   params: Promise<{ store: string }>;
@@ -33,8 +34,8 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
       <PageViewTracker storeSlug={store.slug} />
       <Breadcrumbs
         items={[
-          { name: "Home", href: "/" },
-          { name: "Cart", href: "/cart" },
+          { name: "Home", href: storefrontHref(store, "/") },
+          { name: "Cart", href: storefrontHref(store, "/cart") },
           { name: "Checkout" },
         ]}
       />

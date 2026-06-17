@@ -21,7 +21,7 @@ export async function buildStoreSitemap(
     }),
     prisma.product.findMany({
       where: { storeId: store.id, isPublished: true, noindex: false },
-      select: { slug: true, updatedAt: true },
+      select: { slug: true, updatedAt: true, category: { select: { slug: true } } },
     }),
     prisma.contentPage.findMany({
       where: {
@@ -56,7 +56,12 @@ export async function buildStoreSitemap(
 
   for (const product of products) {
     entries.push({
-      url: canonicalUrl(store, `/p/${product.slug}`),
+      url: canonicalUrl(
+        store,
+        product.category?.slug
+          ? `/c/${product.category.slug}/p/${product.slug}`
+          : `/p/${product.slug}`
+      ),
       lastModified: product.updatedAt,
       changeFrequency: "weekly",
       priority: 0.7,

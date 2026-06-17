@@ -167,6 +167,13 @@ export function isCjOrderApiEnabled(): boolean {
   return process.env.CJ_ORDER_API_ENABLED === "true";
 }
 
+export function isCjManualFulfillmentEnabled(): boolean {
+  return (
+    process.env.CJ_MANUAL_FULFILLMENT_ENABLED === "true" ||
+    process.env.MANUAL_FULFILLMENT_ENABLED === "true"
+  );
+}
+
 export function getCjOrderConfig(): {
   enabled: boolean;
   missingEnv: string[];

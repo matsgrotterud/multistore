@@ -93,10 +93,32 @@ export const supplierMediaSchema = z.object({
   sortOrder: z.number().int().nonnegative().default(0),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  thumbnailUrl: z.string().url().optional(),
   contentType: z.string().optional(),
 });
 
 export type SupplierMedia = z.infer<typeof supplierMediaSchema>;
+
+export const supplierProductVariantSchema = z
+  .object({
+    externalVariantId: z.string().optional(),
+    sku: z.string().optional(),
+    title: z.string().optional(),
+    optionSummary: z.string().optional(),
+    options: z.record(z.string()).default({}),
+    price: z.number().nonnegative().optional(),
+    supplierCost: z.number().nonnegative().optional(),
+    shippingCost: z.number().nonnegative().optional(),
+    stockStatus: z
+      .enum(["IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK", "PREORDER", "UNKNOWN"])
+      .optional(),
+    inventoryQuantity: z.number().int().nonnegative().optional(),
+    imageUrl: z.string().url().optional(),
+    rawData: z.unknown().optional(),
+  })
+  .passthrough();
+
+export type SupplierProductVariant = z.infer<typeof supplierProductVariantSchema>;
 
 export const productSearchResultSchema = z.object({
   providerKey: z.enum(providerKeys),
@@ -117,7 +139,7 @@ export const productSearchResultSchema = z.object({
   gtin: z.string().optional(),
   sku: z.string().optional(),
   specs: z.array(z.object({ label: z.string(), value: z.string() })).default([]),
-  variants: z.array(z.record(z.unknown())).default([]),
+  variants: z.array(supplierProductVariantSchema).default([]),
   media: z.array(supplierMediaSchema).default([]),
   signals: z.record(z.unknown()).default({}),
   risk: z.record(z.unknown()).default({}),
@@ -132,6 +154,9 @@ export interface CreateDropshipOrderInput {
   orderId: string;
   items: Array<{
     externalId: string;
+    externalVariantId?: string;
+    sku?: string;
+    optionSummary?: string;
     quantity: number;
     title: string;
     unitPrice: number;

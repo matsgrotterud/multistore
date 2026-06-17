@@ -2,16 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useCart } from "@/lib/cart/cart-context";
 
 export function SearchBox({ placeholder = "Search products…" }: { placeholder?: string }) {
   const router = useRouter();
+  const cart = useCart();
   const [query, setQuery] = useState("");
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = query.trim();
     if (trimmed) {
-      router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+      router.push(cart.href(`/search?q=${encodeURIComponent(trimmed)}`));
     }
   }
 

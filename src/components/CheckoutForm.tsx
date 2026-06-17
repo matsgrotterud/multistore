@@ -166,6 +166,7 @@ export function CheckoutForm({
         ...form,
         items: cart.items.map((item) => ({
           productId: item.productId,
+          variantId: item.variantId,
           quantity: item.quantity,
         })),
       });
@@ -194,6 +195,7 @@ export function CheckoutForm({
           ...form,
           items: cart.items.map((item) => ({
             productId: item.productId,
+            variantId: item.variantId,
             quantity: item.quantity,
           })),
         }),
@@ -262,7 +264,7 @@ export function CheckoutForm({
           A confirmation with tracking details follows by email once the
           supplier hands your parcel to the carrier.
         </p>
-        <Link href="/" className="btn-primary mt-3">
+        <Link href={cart.href("/")} className="btn-primary mt-3">
           Continue shopping
         </Link>
       </div>
@@ -279,7 +281,7 @@ export function CheckoutForm({
     return (
       <div className="card flex flex-col items-center gap-3 p-12 text-center">
         <p className="text-lg font-semibold text-ink">Your cart is empty</p>
-        <Link href="/" className="btn-primary mt-2">
+        <Link href={cart.href("/")} className="btn-primary mt-2">
           Browse products
         </Link>
       </div>
@@ -374,11 +376,11 @@ export function CheckoutForm({
             </button>
             <p className="text-xs leading-5 text-ink/50">
               By placing the order you accept the{" "}
-              <Link href="/policies/terms" className="underline">
+              <Link href={cart.href("/policies/terms")} className="underline">
                 terms of sale
               </Link>{" "}
               and{" "}
-              <Link href="/policies/privacy" className="underline">
+              <Link href={cart.href("/policies/privacy")} className="underline">
                 privacy policy
               </Link>
               .
@@ -417,14 +419,19 @@ export function CheckoutForm({
         <h2 className="text-lg font-bold text-ink">Order summary</h2>
         <ul className="mt-4 space-y-3">
           {cart.items.map((item) => (
-            <li key={item.productId} className="flex items-center gap-3 text-sm">
+            <li key={item.lineId} className="flex items-center gap-3 text-sm">
               <img
                 src={item.imageUrl}
                 alt={item.imageAlt}
                 className="h-12 w-12 shrink-0 rounded-theme object-cover"
               />
-              <span className="min-w-0 flex-1 truncate text-ink/80">
-                {item.quantity} × {item.title}
+              <span className="min-w-0 flex-1 text-ink/80">
+                <span className="block truncate">
+                  {item.quantity} × {item.title}
+                </span>
+                {item.optionSummary && (
+                  <span className="block truncate text-xs text-ink/55">{item.optionSummary}</span>
+                )}
               </span>
               <span className="font-semibold">
                 {formatCurrency(item.price * item.quantity, cart.currency, locale)}
