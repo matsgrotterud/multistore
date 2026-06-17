@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
 import { getStoreBySlug, type StoreWithTheme } from "@/lib/tenant/resolve-tenant";
+import { humanizeUseCase } from "@/lib/storefront/homepage-content";
 import { parseJsonObject, parseStringArray } from "@/lib/utils/json";
 import type { ClientProduct } from "@/lib/types";
 import type { Product, ProductVariant } from "@prisma/client";
@@ -31,6 +32,79 @@ export const getCategories = cache(async (storeId: string) => {
     },
   });
 });
+
+/**
+ * Categories enriched with a preview image (the top-scoring published product
+ * in each), used to render image-led category cards on the homepage. Generic:
+ * any store with at least one published product per category gets real imagery.
+ */
+export const getCategoriesWithPreview = cache(async (storeId: string) => {
+  return prisma.category.findMany({
+    where: { storeId },
+    orderBy: { sortOrder: "asc" },
+    include: {
+      _count: { select: { products: { where: { isPublished: true } } } },
+      products: {
+        where: { isPublished: true },
+        orderBy: { productScore: "desc" },
+        take: 1,
+        select: { imageUrl: true, imageAlt: true },
+      },
+    },
+  });
+});
+
+export interface DiscoveryTheme {
+  label: string;
+  useCase: string;
+  categorySlug: string;
+  count: number;
+}
+
+/**
+ * Builds "shop by theme" entries from the real `useCases` tags across published
+ * products. Each theme links to the category that contains the most products
+ * with that tag, so the link always lands on a non-empty, pre-filtered result.
+ */
+export const getDiscoveryThemes = cache(
+  async (storeId: string, limit = 6): Promise<DiscoveryTheme[]> => {
+    const products = await prisma.product.findMany({
+      where: { storeId, isPublished: true },
+      select: { useCases: true, category: { select: { slug: true } } },
+    });
+
+    const tally = new Map<string, Map<string, number>>();
+    for (const product of products) {
+      const slug = product.category?.slug;
+      if (!slug) continue;
+      for (const useCase of parseStringArray(product.useCases)) {
+        if (!useCase) continue;
+        const byCategory = tally.get(useCase) ?? new Map<string, number>();
+        byCategory.set(slug, (byCategory.get(slug) ?? 0) + 1);
+        tally.set(useCase, byCategory);
+      }
+    }
+
+    const themes: DiscoveryTheme[] = [];
+    for (const [useCase, byCategory] of tally) {
+      let bestSlug = "";
+      let bestCount = 0;
+      let total = 0;
+      for (const [slug, count] of byCategory) {
+        total += count;
+        if (count > bestCount) {
+          bestCount = count;
+          bestSlug = slug;
+        }
+      }
+      if (bestSlug) {
+        themes.push({ label: humanizeUseCase(useCase), useCase, categorySlug: bestSlug, count: total });
+      }
+    }
+
+    return themes.sort((a, b) => b.count - a.count).slice(0, limit);
+  }
+);
 
 export const getCategoryWithProducts = cache(
   async (storeId: string, slug: string) => {

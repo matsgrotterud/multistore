@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Store } from "@prisma/client";
+import { storefrontHref } from "@/lib/stores/storefront-links";
 
 /**
  * Dropshipping transparency block shown near buying decisions: who fulfills,
@@ -25,10 +26,10 @@ export function PolicyDisclosure({ store }: { store: Store }) {
         not included unless stated at checkout.
       </p>
       <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
-        <Link className="text-primary underline" href="/policies/shipping">
+        <Link className="text-primary underline" href={storefrontHref(store, "/policies/shipping")}>
           Shipping policy
         </Link>
-        <Link className="text-primary underline" href="/policies/returns">
+        <Link className="text-primary underline" href={storefrontHref(store, "/policies/returns")}>
           Returns policy
         </Link>
         <a className="text-primary underline" href={`mailto:${store.supportEmail}`}>
