@@ -2,10 +2,10 @@ import { Prisma } from "@prisma/client";
 import { getSanitizedDatabaseTarget } from "@/lib/db/env-sanitize";
 
 const DEV_DB_COMMANDS = [
-  "npm run db:doctor",
-  "npm run dev:local",
-  "npm run db:push:local",
-  "npm run db:seed:local",
+  "pnpm run db:doctor",
+  "pnpm run dev:local",
+  "pnpm run db:push:local",
+  "pnpm run db:seed:local",
 ] as const;
 
 export function isMissingTableError(error: unknown, tableName: string): boolean {

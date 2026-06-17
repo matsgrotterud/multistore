@@ -7,14 +7,40 @@ The current direction is a commerce operating system for many premium niche stor
 ## Local Setup
 
 ```bash
-npm install
-npx prisma generate
-npx prisma db push
-npm run db:seed
-npm run dev
+pnpm install
+pnpm prisma generate
+pnpm run db:push:local
+pnpm run db:seed:local
+pnpm run dev:local
 ```
 
-Open `/admin` with `ADMIN_PASSWORD`, or preview a store at `/s/drones`.
+Open `/admin` with `ADMIN_PASSWORD`, or preview a store at `/s/drones` or `http://localhost:3010/?store=drones`.
+
+If you see `Store table does not exist`, run `pnpm run db:doctor` — it checks every env file for duplicate `DATABASE_URL` lines (last value wins) and reports which Neon database has your stores. Use `dev:local` / `db:push:local` / `db:seed:local` so commands always read `.env.local`.
+
+## Database Troubleshooting
+
+Never run `vercel env pull .env.local` directly. It can overwrite local database settings and leave `DATABASE_URL` or `DIRECT_URL` empty. Pull Vercel env into `.env.vercel` instead:
+
+```bash
+vercel env pull .env.vercel
+```
+
+When Prisma complains that the `Store` table does not exist, run:
+
+```bash
+pnpm run db:doctor
+```
+
+It inspects `.env`, `.env.local`, `.env.vercel`, `.env.production.local`, and `.env.local.backup*`, redacts credentials, probes each unique Postgres URL, and recommends the database that already has Multistore stores.
+
+When `DATABASE_URL` is empty or duplicated in `.env.local`, run:
+
+```bash
+pnpm run db:repair-local
+```
+
+The repair script backs up `.env.local`, keeps one DB URL per key, prefers the database with `Store` rows, sets `MEDIA_STORAGE_PROVIDER=local`, and sets `NEXT_PUBLIC_SITE_URL=http://localhost:3010`. It does not push schema or seed data.
 
 ## Required Credentials
 

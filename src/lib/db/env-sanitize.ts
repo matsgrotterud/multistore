@@ -13,6 +13,12 @@ export interface SanitizedDatabaseTarget {
   redacted: string;
 }
 
+export interface DatabaseEnvAssignment {
+  key: DatabaseEnvKey;
+  line: number;
+  value: string;
+}
+
 export const CORE_TABLES = [
   "Store",
   "Supplier",
@@ -63,29 +69,34 @@ export function getSanitizedDatabaseTarget(
   );
 }
 
-export function extractDatabaseUrlsFromText(text: string): Array<{
-  key: DatabaseEnvKey;
-  line: number;
-  url: string;
-}> {
-  const entries: Array<{ key: DatabaseEnvKey; line: number; url: string }> = [];
+export function extractDatabaseAssignmentsFromText(text: string): DatabaseEnvAssignment[] {
+  const entries: DatabaseEnvAssignment[] = [];
   const lines = text.split("\n");
 
   for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]?.trim();
+    let line = lines[index]?.trim();
     if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("export ")) line = line.slice("export ".length).trim();
 
     for (const key of DB_ENV_KEYS) {
       const prefix = `${key}=`;
       if (!line.startsWith(prefix)) continue;
       const value = line.slice(prefix.length).trim().replace(/^["']|["']$/g, "");
-      if (value) {
-        entries.push({ key, line: index + 1, url: value });
-      }
+      entries.push({ key, line: index + 1, value });
     }
   }
 
   return entries;
+}
+
+export function extractDatabaseUrlsFromText(text: string): Array<{
+  key: DatabaseEnvKey;
+  line: number;
+  url: string;
+}> {
+  return extractDatabaseAssignmentsFromText(text)
+    .filter((entry) => entry.value.trim())
+    .map((entry) => ({ key: entry.key, line: entry.line, url: entry.value }));
 }
 
 export function uniqueUrlKey(url: string): string {
