@@ -19,6 +19,7 @@
     "catalog:run-jobs": "tsx scripts/catalog-sync.ts run-jobs",
     "catalog:sync": "tsx scripts/catalog-sync.ts sync",
     "catalog:health": "tsx scripts/catalog-sync.ts health",
+    "media:smoke": "tsx scripts/media-smoke.ts",
     "prisma:studio": "prisma studio"
   },
   "prisma": {
