@@ -19,6 +19,7 @@ async function main() {
     );
     return;
   }
+  
 
   if (command === "discover" || command === "sync") {
     const stores = await prisma.store.findMany({
