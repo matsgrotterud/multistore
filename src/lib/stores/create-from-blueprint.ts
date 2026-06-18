@@ -5,12 +5,16 @@ import {
   buildCategoryImportQueries,
   deriveNegativeKeywords,
 } from "@/lib/ai/category-strategy";
+import { assertSafeMediaWriteContext } from "@/lib/storage/media-storage-safety";
 import {
   defaultPrivacyPolicy,
   defaultTermsOfSale,
   type SeedStoreInfo,
 } from "../../../prisma/seed-data/types";
-import { importProductsForStore } from "@/lib/suppliers/import-products";
+import {
+  importProductsForStore,
+  importRelevantEnrichedCandidates,
+} from "@/lib/suppliers/import-products";
 import { resolveLocaleCurrency } from "@/lib/stores/locale-defaults";
 import {
   getStorePreviewUrl,
@@ -198,6 +202,16 @@ export async function createStoreFromBlueprint(
   const importProducts = options.importProducts ?? true;
   const autoPublishScored = options.autoPublishScored ?? true;
 
+  // Hardening: when products (and therefore media) will be imported, refuse to
+  // proceed if connected to a remote DB while media storage resolves to local.
+  // Prevents writing machine-only /uploads/dev-media URLs into a remote DB.
+  // Honors the explicit ALLOW_REMOTE_DB_LOCAL_MEDIA=true escape hatch. This runs
+  // before any rows are created, so no orphaned store is left behind. It also
+  // covers the headless generate-store script that bypasses the admin action.
+  if (importProducts) {
+    assertSafeMediaWriteContext();
+  }
+
   const storeSlug = await ensureUniqueSlug(blueprint.storeSlug);
   const plannedDomain = normalizeDomain(input.domain);
   const { locale, currency } = resolveLocaleCurrency(input.locale, input.country);
@@ -372,6 +386,24 @@ export async function createStoreFromBlueprint(
         warnings.push(`Product import failed for category "${categorySeed.name}": ${message}`);
         console.error(`import failed for ${store.slug}/${category.slug}`, error);
       }
+    }
+  }
+
+  // Budget-aware sweep: per-category import can leave relevant, media-backed
+  // candidates unconverted because broad supplier queries overlap and
+  // re-categorize the same products across categories. Fill the remaining budget
+  // from leftover ENRICHED candidates so a single run reaches the publish target.
+  if (importProducts && productsImported < IMPORT_BUDGET) {
+    try {
+      const sweep = await importRelevantEnrichedCandidates({
+        storeSlug: store.slug,
+        remaining: IMPORT_BUDGET - productsImported,
+        negativeKeywords,
+      });
+      productsImported += sweep.imported;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown sweep error";
+      warnings.push(`Candidate sweep import failed: ${message}`);
     }
   }
 

@@ -11,6 +11,21 @@
 
 const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0", "file"]);
 
+/**
+ * True when a stored media URL points at the local dev filesystem
+ * (`/uploads/dev-media/...`) rather than a durable remote/Blob URL. Such URLs
+ * only exist on the developer machine and must never be reused/served from a
+ * remote DB. Remote URLs (Vercel Blob, CDNs) are absolute `https://` URLs.
+ */
+export function isLocalDevMediaUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const value = url.trim();
+  if (!value) return false;
+  if (value.startsWith("/uploads")) return true;
+  // Any root-relative path (but not protocol-relative "//host") is local.
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
 export interface MediaStorageSafetyReport {
   /** DB hostname only (no credentials), or null if unknown. */
   dbHost: string | null;

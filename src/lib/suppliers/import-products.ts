@@ -4,6 +4,11 @@ import {
   discoverProductsForStore,
   importCandidateToProduct,
 } from "@/lib/catalog/candidate-service";
+import {
+  buildRelevanceProfile,
+  evaluateRelevance,
+  type RelevanceProfile,
+} from "@/lib/ai/category-strategy";
 import type { SupplierAdapter } from "@/lib/suppliers/types";
 import type { ProviderKey } from "@/lib/suppliers/providers/types";
 
@@ -110,8 +115,9 @@ export async function importProductsForStore(options: {
   const negativeKeywords = (options.negativeKeywords ?? [])
     .map((keyword) => keyword.toLowerCase().trim())
     .filter(Boolean);
+  const relevanceProfile = buildRelevanceProfile({ niche: store.niche });
   for (const candidate of candidates.filter((candidate) =>
-    isRelevantCandidate(candidate, queries, store.niche, negativeKeywords)
+    isRelevantCandidate(candidate, queries, store.niche, negativeKeywords, relevanceProfile)
   )) {
     await approveCandidate(candidate.id);
     const productId = await importCandidateToProduct(candidate.id);
@@ -126,6 +132,65 @@ export async function importProductsForStore(options: {
   }
 
   result.skipped = Math.max(0, candidates.length - result.imported);
+  return result;
+}
+
+/**
+ * Budget-aware sweep used after the per-category import pass. The per-category
+ * importer can leave relevant, media-backed candidates unconverted because broad
+ * queries overlap and re-`upsert` (re-categorize) the same supplier products
+ * across categories. This converts any remaining ENRICHED, relevant candidates
+ * up to `remaining`, so a single generation run reliably reaches its target.
+ */
+export async function importRelevantEnrichedCandidates(options: {
+  storeSlug: string;
+  remaining: number;
+  negativeKeywords?: string[];
+  providerKeys?: Array<ProviderKey | string>;
+}): Promise<{ imported: number; slugs: string[] }> {
+  const result = { imported: 0, slugs: [] as string[] };
+  if (options.remaining <= 0) return result;
+
+  const store = await prisma.store.findUnique({ where: { slug: options.storeSlug } });
+  if (!store) throw new Error(`Unknown store: ${options.storeSlug}`);
+
+  const providerKeys = options.providerKeys ?? defaultProviderKeys();
+  const negativeKeywords = (options.negativeKeywords ?? [])
+    .map((keyword) => keyword.toLowerCase().trim())
+    .filter(Boolean);
+  const relevanceProfile = buildRelevanceProfile({ niche: store.niche });
+
+  const candidates = await prisma.productCandidate.findMany({
+    where: {
+      storeId: store.id,
+      providerKey: { in: providerKeys as string[] },
+      status: "ENRICHED",
+      importedProductId: null,
+    },
+    orderBy: { score: "desc" },
+  });
+
+  for (const candidate of candidates) {
+    if (result.imported >= options.remaining) break;
+    if (!isRelevantCandidate(candidate, [store.niche], store.niche, negativeKeywords, relevanceProfile)) {
+      continue;
+    }
+    try {
+      await approveCandidate(candidate.id);
+      const productId = await importCandidateToProduct(candidate.id);
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { slug: true },
+      });
+      if (product) {
+        result.imported += 1;
+        result.slugs.push(product.slug);
+      }
+    } catch {
+      // A single candidate failure must never abort the sweep.
+    }
+  }
+
   return result;
 }
 
@@ -155,7 +220,8 @@ function isRelevantCandidate(
   candidate: { titleRaw: string; descriptionRaw: string | null },
   queries: string[],
   niche: string,
-  negativeKeywords: string[] = []
+  negativeKeywords: string[] = [],
+  profile?: RelevanceProfile
 ): boolean {
   const haystack = `${candidate.titleRaw} ${candidate.descriptionRaw ?? ""}`.toLowerCase();
   // Explicit/vertical negative keywords reject obviously wrong verticals.
@@ -165,6 +231,14 @@ function isRelevantCandidate(
   if (isChildToyNiche(niche) && /\b(pet|cat|dog|bird|parrot|hamster|rabbit)\b/i.test(haystack)) {
     return false;
   }
+
+  // For known verticals, require positive niche/end-user evidence and reject
+  // species/decor/doll mismatches. Generic niches keep the query-term fallback.
+  if (profile && profile.requirePositive) {
+    return evaluateRelevance(profile, candidate.titleRaw, candidate.descriptionRaw, negativeKeywords)
+      .relevant;
+  }
+
   const bestMatch = Math.max(
     ...queries.map((query) => {
       const terms = importantTerms(query);

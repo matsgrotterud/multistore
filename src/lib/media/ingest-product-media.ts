@@ -2,7 +2,10 @@ import { prisma } from "@/lib/db";
 import { fetchMedia } from "@/lib/media/fetch-media";
 import { syncProductGallery } from "@/lib/media/sync-product-gallery";
 import { getStorageProvider } from "@/lib/storage/storage-provider";
-import { assertSafeMediaWriteContext } from "@/lib/storage/media-storage-safety";
+import {
+  assertSafeMediaWriteContext,
+  isLocalDevMediaUrl,
+} from "@/lib/storage/media-storage-safety";
 import type { SupplierMedia } from "@/lib/suppliers/providers/types";
 
 export interface IngestProductMediaInput {
@@ -59,16 +62,26 @@ export async function ingestProductMedia(
         orderBy: { createdAt: "asc" },
       });
 
-      const storageKey =
-        existingByHash?.storageKey ??
-        `media/${fetched.contentHash}.${fetched.extension}`;
-      const storageUrl =
-        existingByHash?.storageUrl ??
-        (await storage.putObject({
-          key: storageKey,
-          body: fetched.body,
-          contentType: fetched.contentType,
-        })).url;
+      // Reuse an existing identical asset to avoid re-uploading — EXCEPT when it
+      // points at local dev media (`/uploads/dev-media/...`) while the active
+      // provider is not local. Reusing it would copy a machine-only URL into a
+      // remote/Blob-backed DB and break live images. In that case re-store fresh.
+      const canReuse =
+        existingByHash != null &&
+        !(isLocalDevMediaUrl(existingByHash.storageUrl) && storage.name !== "local");
+
+      const storageKey = canReuse
+        ? existingByHash!.storageKey ?? `media/${fetched.contentHash}.${fetched.extension}`
+        : `media/${fetched.contentHash}.${fetched.extension}`;
+      const storageUrl = canReuse
+        ? existingByHash!.storageUrl!
+        : (
+            await storage.putObject({
+              key: storageKey,
+              body: fetched.body,
+              contentType: fetched.contentType,
+            })
+          ).url;
 
       await prisma.productMediaAsset.create({
         data: {

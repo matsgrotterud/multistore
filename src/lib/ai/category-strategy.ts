@@ -130,45 +130,289 @@ export function buildStoreImportQueries(input: CategoryStrategyInput): string[] 
 }
 
 /**
+ * For pet niches, turn a merchandising category name into concrete supplier
+ * queries that include the animal + product intent. This avoids bare, ambiguous
+ * queries like "Treat Puzzles" that match "trick or treat" Halloween décor.
+ */
+function refinePetCategoryQueries(animal: string, categoryName: string): string[] | null {
+  const c = categoryName.toLowerCase();
+  if (/treat|puzzle|feeder|enrich|iq|interactive/.test(c)) {
+    return [
+      `${animal} treat dispenser toy`,
+      `${animal} puzzle feeder`,
+      `interactive ${animal} puzzle toy`,
+      `${animal} enrichment toy`,
+      `slow feeder puzzle ${animal}`,
+    ];
+  }
+  if (/chew/.test(c)) {
+    return [`${animal} chew toy`, `durable ${animal} chew toy`, `${animal} teething toy`];
+  }
+  if (/plush|soft/.test(c)) {
+    return [`${animal} plush toy`, `squeaky plush ${animal} toy`];
+  }
+  if (/rope|tug/.test(c)) {
+    return [`${animal} rope toy`, `tug toy for ${animal}`];
+  }
+  if (/outdoor|fetch|ball|play/.test(c)) {
+    return [`${animal} fetch toy`, `${animal} ball toy`, `outdoor ${animal} toy`];
+  }
+  if (/scratch/.test(c)) {
+    return [`${animal} scratcher`, `${animal} scratching post`];
+  }
+  if (/wand|catnip|teaser/.test(c)) {
+    return [`${animal} wand toy`, `${animal} catnip toy`, `interactive ${animal} teaser toy`];
+  }
+  return null;
+}
+
+/**
  * Multiple category-specific CJ queries: the category itself, niche-qualified
  * variants, simple product terms and supplier hints — with negative keywords
- * removed and buyer age never included.
+ * removed and buyer age never included. For pet verticals, ambiguous category
+ * names are expanded into concrete, animal-qualified product queries.
  */
 export function buildCategoryImportQueries(
   input: CategoryStrategyInput,
   categoryName: string
 ): string[] {
+  const vertical = detectVertical(input.niche, input.endUser);
   const lowerCategory = categoryName.toLowerCase();
-  const queries = uniqueLower([
-    categoryName,
-    `${input.niche} ${categoryName}`,
-    input.niche,
-    ...(input.supplierSearchHints ?? []).map((hint) =>
-      hint.toLowerCase().includes(lowerCategory) ? hint : `${hint} ${categoryName}`
-    ),
-    ...(input.supplierSearchHints ?? []),
-  ]);
+
+  let base: string[];
+  if (vertical === "dog" || vertical === "cat" || vertical === "pet") {
+    const animal = vertical === "cat" ? "cat" : vertical === "pet" ? "pet" : "dog";
+    const refined = refinePetCategoryQueries(animal, categoryName);
+    // Animal-qualified queries only — never the bare category name, which is the
+    // ambiguous form CJ mismatches against (e.g. "Treat Puzzles").
+    base = refined
+      ? [...refined, `${input.niche} ${categoryName}`]
+      : [`${animal} ${categoryName} toy`, `${input.niche} ${categoryName}`, `${animal} ${categoryName}`];
+  } else {
+    base = [
+      categoryName,
+      `${input.niche} ${categoryName}`,
+      input.niche,
+      ...(input.supplierSearchHints ?? []).map((hint) =>
+        hint.toLowerCase().includes(lowerCategory) ? hint : `${hint} ${categoryName}`
+      ),
+    ];
+  }
+
+  const queries = uniqueLower([...base, ...(input.supplierSearchHints ?? [])]);
   return dropNegatives(queries, input.negativeKeywords).slice(0, 6);
+}
+
+/* --------------------------------------------------------------------------
+ * Vertical-aware supplier relevance (Generator V2 hardening)
+ *
+ * Real supplier search (CJ) is fuzzy: a "dog treat puzzle" query happily returns
+ * "trick or treat" Halloween décor. We therefore (a) generate more concrete
+ * supplier queries and (b) require positive niche/end-user evidence + reject
+ * obvious mismatches (other species, décor, dolls) before import — while staying
+ * generic enough to leave unknown niches untouched.
+ * ------------------------------------------------------------------------ */
+
+export type Vertical = "dog" | "cat" | "pet" | "fishing" | "footwear" | "kids" | "generic";
+
+export interface RelevanceProfile {
+  vertical: Vertical;
+  /** When true, a candidate must contain at least one positive token. */
+  requirePositive: boolean;
+  positiveTokens: string[];
+  /** Hard reject if any appears in title/description. */
+  negativeTokens: string[];
+  /** Reject `token` unless one of `unlessAny` is also present (context rescue). */
+  conditionalNegatives: { token: string; unlessAny: string[] }[];
+}
+
+const DECOR_NEGATIVES = [
+  "ornament",
+  "wall decoration",
+  "wall decor",
+  "resin decoration",
+  "figurine",
+  "pumpkin decor",
+  "halloween decoration",
+  "party decoration",
+  "garland",
+  "wreath",
+  "sticker",
+  "keychain",
+  "costume",
+];
+
+export function detectVertical(niche: string, endUser?: string): Vertical {
+  const h = `${niche} ${endUser ?? ""}`.toLowerCase();
+  const hasDog = /\b(dog|dogs|puppy|puppies|canine|doggie)\b/.test(h);
+  const hasCat = /\b(cat|cats|kitten|kittens|feline)\b/.test(h);
+  if (hasDog && !hasCat) return "dog";
+  if (hasCat && !hasDog) return "cat";
+  if (/\b(pet|pets)\b/.test(h) || (hasDog && hasCat)) return "pet";
+  if (/\b(fish|bait|tackle|lure|lures|angler|angling|fishing|carp|bass)\b/.test(h)) return "fishing";
+  if (/\b(shoe|shoes|sneaker|sneakers|footwear|boot|boots|trainer|trainers)\b/.test(h)) return "footwear";
+  if (/\b(child|children|kid|kids|toddler|baby|infant|nursery)\b/.test(h)) return "kids";
+  return "generic";
+}
+
+export function buildRelevanceProfile(input: {
+  niche: string;
+  endUser?: string;
+  categoryHints?: string[];
+}): RelevanceProfile {
+  const vertical = detectVertical(input.niche, input.endUser);
+  const context = `${input.niche} ${input.endUser ?? ""} ${(input.categoryHints ?? []).join(" ")}`.toLowerCase();
+  const animalConditionalDoll = {
+    token: "doll",
+    unlessAny: ["dog", "puppy", "cat", "kitten", "pet", "canine", "feline"],
+  };
+
+  switch (vertical) {
+    case "dog": {
+      // Cross-species terms are CONDITIONAL, not hard, negatives: supplier dog
+      // products routinely mention "cat" in dual-species descriptions ("for dogs
+      // and cats"). Reject only cat-ONLY items (cat term present with no dog
+      // evidence), so legitimate dog toys are kept.
+      const dogSupport = ["dog", "dogs", "puppy", "puppies", "canine", "doggie", "doggy"];
+      const catCrossNegatives = /\bcat|kitten|feline\b/.test(context)
+        ? []
+        : ["cat", "kitten", "feline"].map((token) => ({ token, unlessAny: dogSupport }));
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "dog", "dogs", "puppy", "puppies", "canine", "doggie", "pet", "chew", "squeaky",
+          "tug", "rope", "fetch", "treat dispenser", "puzzle feeder", "slow feeder",
+          "dog toy", "pet toy", "teething", "snuffle", "enrichment", "kong",
+        ],
+        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
+        conditionalNegatives: [animalConditionalDoll, ...catCrossNegatives],
+      };
+    }
+    case "cat": {
+      const catSupport = ["cat", "cats", "kitten", "kittens", "feline"];
+      const dogCrossNegatives = /\bdog|puppy|canine\b/.test(context)
+        ? []
+        : ["dog", "puppy", "canine"].map((token) => ({ token, unlessAny: catSupport }));
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "cat", "cats", "kitten", "kittens", "feline", "pet", "scratcher", "catnip",
+          "wand toy", "cat toy", "pet toy", "teaser", "mouse toy", "enrichment",
+        ],
+        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
+        conditionalNegatives: [animalConditionalDoll, ...dogCrossNegatives],
+      };
+    }
+    case "pet":
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "pet", "dog", "cat", "puppy", "kitten", "animal", "chew", "squeaky", "tug",
+          "rope", "fetch", "scratcher", "catnip", "treat dispenser", "puzzle feeder",
+          "pet toy", "enrichment",
+        ],
+        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
+        conditionalNegatives: [animalConditionalDoll],
+      };
+    case "fishing":
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "fish", "fishing", "bait", "lure", "lures", "tackle", "hook", "hooks", "rig",
+          "rod", "reel", "angler", "angling", "carp", "bass", "trout", "pike", "line",
+          "leader", "sinker", "swivel", "jig", "spinner", "float", "bobber", "spoon",
+        ],
+        negativeTokens: uniqueLower([
+          "shoe", "sneaker", "boot", "aquarium decoration", "doll", "clothing", "dress",
+          ...DECOR_NEGATIVES,
+        ]),
+        conditionalNegatives: [],
+      };
+    case "footwear":
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "shoe", "shoes", "sneaker", "sneakers", "trainer", "trainers", "footwear",
+          "boot", "boots", "sandal", "sandals", "loafer", "runner", "running shoe",
+          "sole", "insole", "lace", "cleat",
+        ],
+        negativeTokens: uniqueLower(["toy", "doll", "miniature", ...DECOR_NEGATIVES]),
+        conditionalNegatives: [],
+      };
+    case "kids":
+      return {
+        vertical,
+        requirePositive: true,
+        positiveTokens: [
+          "kid", "kids", "child", "children", "toddler", "baby", "learning", "educational",
+          "wooden", "puzzle", "building", "blocks", "stem", "montessori", "play", "plush",
+          "stuffed", "toy", "toys",
+        ],
+        negativeTokens: uniqueLower(["dog", "cat", "pet", "aquarium"]),
+        conditionalNegatives: [],
+      };
+    default:
+      // Unknown vertical: do not require positive evidence (avoid damaging other
+      // niches); only explicit negative keywords apply downstream.
+      return {
+        vertical: "generic",
+        requirePositive: false,
+        positiveTokens: [],
+        negativeTokens: [],
+        conditionalNegatives: [],
+      };
+  }
+}
+
+/**
+ * Decide if a supplier candidate is relevant for a niche. Returns a reason when
+ * rejected (useful for debug/admin). Only enforces positive evidence for known
+ * verticals; generic niches fall back to the caller's query-term matching.
+ */
+export function evaluateRelevance(
+  profile: RelevanceProfile,
+  title: string,
+  description: string | null | undefined,
+  extraNegatives: string[] = []
+): { relevant: boolean; reason?: string } {
+  const haystack = `${title} ${description ?? ""}`.toLowerCase();
+
+  const negatives = uniqueLower([...profile.negativeTokens, ...extraNegatives]).map((n) =>
+    n.toLowerCase()
+  );
+  const hitNegative = negatives.find((negative) => negative && haystack.includes(negative));
+  if (hitNegative) return { relevant: false, reason: `matched negative term "${hitNegative}"` };
+
+  for (const conditional of profile.conditionalNegatives) {
+    if (
+      haystack.includes(conditional.token) &&
+      !conditional.unlessAny.some((token) => haystack.includes(token))
+    ) {
+      return { relevant: false, reason: `"${conditional.token}" without supporting context` };
+    }
+  }
+
+  if (profile.requirePositive) {
+    const hasPositive = profile.positiveTokens.some((token) => haystack.includes(token));
+    if (!hasPositive) {
+      return { relevant: false, reason: `no positive ${profile.vertical} evidence` };
+    }
+  }
+
+  return { relevant: true };
 }
 
 /**
  * Vertical-aware default negative keywords merged with any explicit ones, so a
- * fish-bait store does not import shoes, a kids store does not import pet items,
- * etc. Conservative to avoid emptying stores.
+ * fish-bait store does not import shoes, a dog store does not import cat/décor
+ * items, etc. Conservative to avoid emptying stores.
  */
 export function deriveNegativeKeywords(input: CategoryStrategyInput): string[] {
-  const haystack = `${input.niche} ${input.endUser ?? ""}`.toLowerCase();
-  const defaults: string[] = [];
-
-  const isKids = /\b(child|children|kid|kids|toddler|baby|infant|nursery)\b/.test(haystack);
-  const isPet = /\b(dog|cat|pet|puppy|kitten|pets)\b/.test(haystack);
-  const isFishing = /\b(fish|bait|tackle|lure|angler|fishing|carp|bass)\b/.test(haystack);
-  const isFootwear = /\b(shoe|shoes|sneaker|footwear|boot|trainer)\b/.test(haystack);
-
-  if (isKids && !isPet) defaults.push("dog", "cat", "pet");
-  if (isPet && !isKids) defaults.push("baby", "infant", "for kids", "children");
-  if (isFishing) defaults.push("aquarium decoration", "toy fish", "fishing shoes");
-  if (isFootwear) defaults.push("toy", "doll", "keychain", "miniature");
-
-  return uniqueLower([...(input.negativeKeywords ?? []), ...defaults]);
+  const profile = buildRelevanceProfile(input);
+  return uniqueLower([...(input.negativeKeywords ?? []), ...profile.negativeTokens]);
 }
