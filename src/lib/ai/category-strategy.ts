@@ -215,32 +215,153 @@ export function buildCategoryImportQueries(
 
 export type Vertical = "dog" | "cat" | "pet" | "fishing" | "footwear" | "kids" | "generic";
 
-export interface RelevanceProfile {
-  vertical: Vertical;
-  /** When true, a candidate must contain at least one positive token. */
-  requirePositive: boolean;
-  positiveTokens: string[];
-  /** Hard reject if any appears in title/description. */
-  negativeTokens: string[];
-  /** Reject `token` unless one of `unlessAny` is also present (context rescue). */
-  conditionalNegatives: { token: string; unlessAny: string[] }[];
+/* ----- token utilities: word-boundary, plural-tolerant matching ----- */
+
+/** Light singularization so "hooks" and "hook" match without substring bugs. */
+function singular(token: string): string {
+  return token.length > 3 && token.endsWith("s") ? token.slice(0, -1) : token;
 }
 
-const DECOR_NEGATIVES = [
-  "ornament",
-  "wall decoration",
-  "wall decor",
-  "resin decoration",
-  "figurine",
-  "pumpkin decor",
-  "halloween decoration",
-  "party decoration",
-  "garland",
-  "wreath",
-  "sticker",
-  "keychain",
-  "costume",
+/** Split text into singularized word tokens (no substring false positives). */
+function tokenize(text: string): string[] {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map(singular);
+}
+
+function phraseTokens(phrase: string): string[] {
+  return tokenize(phrase);
+}
+
+/** True if `phrase` (token sequence) appears contiguously in `textTokens`. */
+function containsPhrase(textTokens: string[], phrase: string[]): boolean {
+  if (phrase.length === 0) return false;
+  for (let i = 0; i + phrase.length <= textTokens.length; i++) {
+    let ok = true;
+    for (let j = 0; j < phrase.length; j++) {
+      if (textTokens[i + j] !== phrase[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
+/** Words ignored entirely when reading plan/candidate text. */
+const STOPWORDS = new Set([
+  "for", "and", "the", "with", "of", "a", "an", "to", "in", "on", "by", "or", "your", "our",
+  "pcs", "pc", "piece", "set", "pack", "kit", "new", "hot", "sale", "best", "quality",
+]);
+
+/**
+ * Generic / ambiguous tokens that must NEVER count as relevance evidence on
+ * their own. Niche-agnostic by design: includes the user-flagged weak nouns
+ * (hook, line, fish, ball, toy, shoe, filter, rack, ...) plus common ecommerce
+ * filler and colours/adjectives. A weak token only "helps" implicitly by
+ * appearing next to a real specific niche token (which is what actually passes).
+ */
+const GENERIC_TOKENS = new Set([
+  "hook", "line", "fish", "ball", "toy", "shoe", "filter", "rack", "spoon", "float", "plush", "collar",
+  "item", "product", "gift", "accessory", "bottle", "case", "bag", "box", "holder", "cover", "pad",
+  "mat", "clip", "strap", "stand", "frame", "sheet", "part", "gadget", "device", "tool",
+  "mini", "miniature", "size", "color", "colour", "pattern", "shape", "style", "model", "type", "kind",
+  "soft", "hard", "small", "large", "big", "portable", "multifunctional", "adjustable",
+  "durable", "universal", "mixed", "cute", "lovely", "fashion", "fashionable", "creative",
+  "green", "blue", "red", "black", "white", "pink", "yellow", "grey", "gray", "colorful", "colourful",
+]);
+
+/** Specific (non-generic, non-stopword) evidence tokens within a piece of text. */
+function specificTokensOf(text: string): string[] {
+  return tokenize(text).filter(
+    (t) => t.length >= 3 && !STOPWORDS.has(t) && !GENERIC_TOKENS.has(t)
+  );
+}
+
+/**
+ * Generic, niche-agnostic product-class mismatch layer. Each class is rejected
+ * for a store UNLESS the store's plan (niche/category/hints) explicitly allows
+ * it (allow tokens present, or the niche itself reads like that class). This is
+ * what stops "drywall hooks" in a fish store and "toy shoes" in a footwear
+ * store without per-niche blacklists.
+ */
+interface ProductClass {
+  name: string;
+  /** Phrases (word-boundary) that identify a candidate as belonging to the class. */
+  indicators: string[];
+  /** Tokens/phrases in the plan that mean the merchant actually wants this class. */
+  allow: string[];
+}
+
+const PRODUCT_CLASSES: ProductClass[] = [
+  {
+    name: "hardware",
+    indicators: [
+      "drywall", "plywood", "wall hook", "s hook", "towel rack", "towel bar", "curtain hook",
+      "adhesive hook", "self adhesive hook", "coat hook", "robe hook", "bath hook", "utility hook",
+    ],
+    allow: ["hardware", "tool", "diy", "drywall", "screw", "fastener", "garage", "workshop", "bracket", "mount"],
+  },
+  {
+    name: "aquarium",
+    indicators: ["aquarium", "fish tank", "tank filter", "filter media", "fish bowl", "aquatic plant", "reef tank"],
+    allow: ["aquarium", "fish tank", "aquatic", "reef", "tank", "pond"],
+  },
+  {
+    name: "decor",
+    indicators: [
+      "ornament", "wall decoration", "wall hanging", "wall decal", "wall sticker", "figurine",
+      "pumpkin decor", "garland", "wreath", "tabletop decor", "trick or treat", "christmas decoration",
+      "halloween decoration", "statue",
+    ],
+    allow: ["decor", "decoration", "ornament", "figurine", "festive", "christmas", "halloween", "party", "interior"],
+  },
+  {
+    name: "apparel-accessory",
+    indicators: [
+      "keychain", "key chain", "key ring", "sticker", "costume", "t shirt", "tshirt", "hoodie",
+      "lanyard", "phone case", "brooch", "enamel pin", "fridge magnet",
+    ],
+    allow: [
+      "apparel", "clothing", "fashion", "accessory", "wear", "keychain", "sticker", "costume",
+      "jewelry", "jewellery", "pin", "magnet",
+    ],
+  },
+  {
+    name: "baby-kids",
+    indicators: ["baby", "infant", "toddler", "newborn", "nursery", "diaper"],
+    allow: ["baby", "infant", "toddler", "kid", "child", "nursery", "newborn"],
+  },
 ];
+
+/**
+ * Evidence-based relevance profile derived entirely from the store plan
+ * (niche / end user / categories / supplier hints / import queries / negative
+ * keywords). Replaces the old "one weak token passes" vertical token lists.
+ */
+export interface RelevanceProfile {
+  niche: string;
+  vertical: Vertical;
+  /** When false (rare), accept anything not explicitly negative. */
+  requireEvidence: boolean;
+  /** Multi-word plan phrases — one match is strong evidence. */
+  strongPhrases: string[][];
+  /** Specific (non-generic) plan tokens — one match is sufficient evidence. */
+  specificTokens: Set<string>;
+  /** Niche/end-user identity tokens that rescue conditional negatives. */
+  nicheCoreTokens: Set<string>;
+  /** Explicit user/caller negatives — hard reject (word-boundary phrase). */
+  hardNegativePhrases: string[][];
+  /** Reject phrase unless a rescue token is also present (e.g. cross-species). */
+  conditionalNegatives: { phrase: string[]; rescue: string[] }[];
+  /** Generic product classes NOT allowed by this niche. */
+  activeClasses: { name: string; indicators: string[][] }[];
+}
 
 export function detectVertical(niche: string, endUser?: string): Vertical {
   const h = `${niche} ${endUser ?? ""}`.toLowerCase();
@@ -255,124 +376,114 @@ export function detectVertical(niche: string, endUser?: string): Vertical {
   return "generic";
 }
 
-export function buildRelevanceProfile(input: {
+export interface RelevanceProfileInput {
   niche: string;
   endUser?: string;
+  targetCustomer?: string;
   categoryHints?: string[];
-}): RelevanceProfile {
-  const vertical = detectVertical(input.niche, input.endUser);
-  const context = `${input.niche} ${input.endUser ?? ""} ${(input.categoryHints ?? []).join(" ")}`.toLowerCase();
-  const animalConditionalDoll = {
-    token: "doll",
-    unlessAny: ["dog", "puppy", "cat", "kitten", "pet", "canine", "feline"],
-  };
-
-  switch (vertical) {
-    case "dog": {
-      // Cross-species terms are CONDITIONAL, not hard, negatives: supplier dog
-      // products routinely mention "cat" in dual-species descriptions ("for dogs
-      // and cats"). Reject only cat-ONLY items (cat term present with no dog
-      // evidence), so legitimate dog toys are kept.
-      const dogSupport = ["dog", "dogs", "puppy", "puppies", "canine", "doggie", "doggy"];
-      const catCrossNegatives = /\bcat|kitten|feline\b/.test(context)
-        ? []
-        : ["cat", "kitten", "feline"].map((token) => ({ token, unlessAny: dogSupport }));
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "dog", "dogs", "puppy", "puppies", "canine", "doggie", "pet", "chew", "squeaky",
-          "tug", "rope", "fetch", "treat dispenser", "puzzle feeder", "slow feeder",
-          "dog toy", "pet toy", "teething", "snuffle", "enrichment", "kong",
-        ],
-        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
-        conditionalNegatives: [animalConditionalDoll, ...catCrossNegatives],
-      };
-    }
-    case "cat": {
-      const catSupport = ["cat", "cats", "kitten", "kittens", "feline"];
-      const dogCrossNegatives = /\bdog|puppy|canine\b/.test(context)
-        ? []
-        : ["dog", "puppy", "canine"].map((token) => ({ token, unlessAny: catSupport }));
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "cat", "cats", "kitten", "kittens", "feline", "pet", "scratcher", "catnip",
-          "wand toy", "cat toy", "pet toy", "teaser", "mouse toy", "enrichment",
-        ],
-        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
-        conditionalNegatives: [animalConditionalDoll, ...dogCrossNegatives],
-      };
-    }
-    case "pet":
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "pet", "dog", "cat", "puppy", "kitten", "animal", "chew", "squeaky", "tug",
-          "rope", "fetch", "scratcher", "catnip", "treat dispenser", "puzzle feeder",
-          "pet toy", "enrichment",
-        ],
-        negativeTokens: uniqueLower([...DECOR_NEGATIVES, "baby", "infant"]),
-        conditionalNegatives: [animalConditionalDoll],
-      };
-    case "fishing":
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "fish", "fishing", "bait", "lure", "lures", "tackle", "hook", "hooks", "rig",
-          "rod", "reel", "angler", "angling", "carp", "bass", "trout", "pike", "line",
-          "leader", "sinker", "swivel", "jig", "spinner", "float", "bobber", "spoon",
-        ],
-        negativeTokens: uniqueLower([
-          "shoe", "sneaker", "boot", "aquarium decoration", "doll", "clothing", "dress",
-          ...DECOR_NEGATIVES,
-        ]),
-        conditionalNegatives: [],
-      };
-    case "footwear":
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "shoe", "shoes", "sneaker", "sneakers", "trainer", "trainers", "footwear",
-          "boot", "boots", "sandal", "sandals", "loafer", "runner", "running shoe",
-          "sole", "insole", "lace", "cleat",
-        ],
-        negativeTokens: uniqueLower(["toy", "doll", "miniature", ...DECOR_NEGATIVES]),
-        conditionalNegatives: [],
-      };
-    case "kids":
-      return {
-        vertical,
-        requirePositive: true,
-        positiveTokens: [
-          "kid", "kids", "child", "children", "toddler", "baby", "learning", "educational",
-          "wooden", "puzzle", "building", "blocks", "stem", "montessori", "play", "plush",
-          "stuffed", "toy", "toys",
-        ],
-        negativeTokens: uniqueLower(["dog", "cat", "pet", "aquarium"]),
-        conditionalNegatives: [],
-      };
-    default:
-      // Unknown vertical: do not require positive evidence (avoid damaging other
-      // niches); only explicit negative keywords apply downstream.
-      return {
-        vertical: "generic",
-        requirePositive: false,
-        positiveTokens: [],
-        negativeTokens: [],
-        conditionalNegatives: [],
-      };
-  }
+  supplierSearchHints?: string[];
+  negativeKeywords?: string[];
+  /** Actual supplier import queries used for this store/category. */
+  importQueries?: string[];
 }
 
 /**
- * Decide if a supplier candidate is relevant for a niche. Returns a reason when
- * rejected (useful for debug/admin). Only enforces positive evidence for known
- * verticals; generic niches fall back to the caller's query-term matching.
+ * Build a data-driven, evidence-based relevance profile from the store plan.
+ * Nothing here is niche-specific: strong phrases + specific tokens come straight
+ * from niche / categories / hints / queries, while product-class mismatch and
+ * cross-species rules are generic and only fire when the plan does not allow them.
+ */
+export function buildRelevanceProfile(input: RelevanceProfileInput): RelevanceProfile {
+  const niche = input.niche ?? "";
+  const vertical = detectVertical(niche, input.endUser);
+
+  // Categories: explicit hints if given, otherwise the same derived categories
+  // the store would use — so the profile has real vocabulary even with no hints.
+  const derivedCategories = categoryNames({
+    niche,
+    endUser: input.endUser,
+    categoryHints: input.categoryHints,
+    supplierSearchHints: input.supplierSearchHints,
+    negativeKeywords: input.negativeKeywords,
+  });
+
+  const planPhrases = uniqueLower([
+    niche,
+    ...(input.categoryHints ?? []),
+    ...derivedCategories,
+    ...(input.supplierSearchHints ?? []),
+    ...(input.importQueries ?? []),
+  ]);
+  const planText = [niche, input.endUser ?? "", ...planPhrases].join(" ");
+  const planTokens = tokenize(planText);
+  const planTokenSet = new Set(planTokens);
+
+  // Strong = multi-token plan phrases (e.g. "soft fishing bait", "running shoes").
+  const strongPhrases: string[][] = [];
+  for (const phrase of planPhrases) {
+    const toks = phraseTokens(phrase).filter((t) => !STOPWORDS.has(t));
+    if (toks.length >= 2) strongPhrases.push(toks);
+  }
+
+  const specificTokens = new Set(specificTokensOf(planText));
+  const nicheCoreTokens = new Set(specificTokensOf(`${niche} ${input.endUser ?? ""}`));
+
+  // Cross-species conditional negatives (generalised dog/cat lesson).
+  const h = `${niche} ${input.endUser ?? ""}`.toLowerCase();
+  const hasDog = /\b(dog|dogs|puppy|puppies|canine|doggie|doggy|pup)\b/.test(h);
+  const hasCat = /\b(cat|cats|kitten|kittens|feline|kitty)\b/.test(h);
+  const dogTokens = ["dog", "puppy", "canine", "doggie", "pup"];
+  const catTokens = ["cat", "kitten", "feline", "kitty"];
+  const conditionalNegatives: { phrase: string[]; rescue: string[] }[] = [];
+  if (hasDog && !hasCat) {
+    for (const t of catTokens) conditionalNegatives.push({ phrase: phraseTokens(t), rescue: dogTokens });
+    dogTokens.forEach((t) => nicheCoreTokens.add(singular(t)));
+  } else if (hasCat && !hasDog) {
+    for (const t of dogTokens) conditionalNegatives.push({ phrase: phraseTokens(t), rescue: catTokens });
+    catTokens.forEach((t) => nicheCoreTokens.add(singular(t)));
+  }
+
+  // "doll" is universally suspicious unless the product clearly matches the
+  // niche identity (or the merchant explicitly listed it as a hard negative).
+  const userNegSingles = new Set((input.negativeKeywords ?? []).map((n) => singular(n.toLowerCase().trim())));
+  if (!userNegSingles.has("doll")) {
+    conditionalNegatives.push({ phrase: phraseTokens("doll"), rescue: [...nicheCoreTokens] });
+  }
+
+  const hardNegativePhrases = uniqueLower(input.negativeKeywords ?? [])
+    .map((n) => phraseTokens(n))
+    .filter((p) => p.length > 0);
+
+  // A product class is enforced unless the plan allows it (allow token present)
+  // or the niche itself reads like that class (so an aquarium store keeps tanks).
+  const activeClasses = PRODUCT_CLASSES.filter((cls) => {
+    const allowedByToken = cls.allow.some((a) => {
+      const at = phraseTokens(a);
+      return at.length <= 1 ? planTokenSet.has(at[0]) : containsPhrase(planTokens, at);
+    });
+    const nicheIsClass = cls.indicators.some((ind) => containsPhrase(planTokens, phraseTokens(ind)));
+    return !(allowedByToken || nicheIsClass);
+  }).map((cls) => ({ name: cls.name, indicators: cls.indicators.map(phraseTokens) }));
+
+  return {
+    niche,
+    vertical,
+    requireEvidence: true,
+    strongPhrases,
+    specificTokens,
+    nicheCoreTokens,
+    hardNegativePhrases,
+    conditionalNegatives,
+    activeClasses,
+  };
+}
+
+/**
+ * Evidence-based relevance gate. A candidate passes only when it shows real
+ * niche evidence (a strong plan phrase or a specific plan token) AND trips no
+ * hard negative, no disallowed product class, and no unresolved conditional
+ * negative. A single generic token (hook/fish/shoe/...) never passes alone.
+ * Returns a machine-readable reason for rejected candidates.
  */
 export function evaluateRelevance(
   profile: RelevanceProfile,
@@ -380,39 +491,55 @@ export function evaluateRelevance(
   description: string | null | undefined,
   extraNegatives: string[] = []
 ): { relevant: boolean; reason?: string } {
-  const haystack = `${title} ${description ?? ""}`.toLowerCase();
+  const textTokens = tokenize(`${title} ${description ?? ""}`);
 
-  const negatives = uniqueLower([...profile.negativeTokens, ...extraNegatives]).map((n) =>
-    n.toLowerCase()
-  );
-  const hitNegative = negatives.find((negative) => negative && haystack.includes(negative));
-  if (hitNegative) return { relevant: false, reason: `matched negative term "${hitNegative}"` };
-
-  for (const conditional of profile.conditionalNegatives) {
-    if (
-      haystack.includes(conditional.token) &&
-      !conditional.unlessAny.some((token) => haystack.includes(token))
-    ) {
-      return { relevant: false, reason: `"${conditional.token}" without supporting context` };
+  // 1. Hard negatives (explicit user + caller-provided), word-boundary.
+  const hardNegs = [
+    ...profile.hardNegativePhrases,
+    ...uniqueLower(extraNegatives)
+      .map((n) => phraseTokens(n))
+      .filter((p) => p.length > 0),
+  ];
+  for (const neg of hardNegs) {
+    if (containsPhrase(textTokens, neg)) {
+      return { relevant: false, reason: `hard-negative:${neg.join(" ")}` };
     }
   }
 
-  if (profile.requirePositive) {
-    const hasPositive = profile.positiveTokens.some((token) => haystack.includes(token));
-    if (!hasPositive) {
-      return { relevant: false, reason: `no positive ${profile.vertical} evidence` };
+  // 2. Generic product-class mismatch (only classes not allowed by this niche).
+  for (const cls of profile.activeClasses) {
+    if (cls.indicators.some((ind) => containsPhrase(textTokens, ind))) {
+      return { relevant: false, reason: `product-class-mismatch:${cls.name}` };
     }
   }
 
-  return { relevant: true };
+  // 3. Conditional negatives without rescue evidence (cross-species / doll).
+  for (const cond of profile.conditionalNegatives) {
+    if (containsPhrase(textTokens, cond.phrase)) {
+      const rescued = cond.rescue.some((r) => textTokens.includes(singular(r)));
+      if (!rescued) {
+        return {
+          relevant: false,
+          reason: `conditional-negative-without-positive-evidence:${cond.phrase.join(" ")}`,
+        };
+      }
+    }
+  }
+
+  // 4. Evidence threshold: strong plan phrase OR a specific plan token.
+  if (!profile.requireEvidence) return { relevant: true };
+  if (profile.strongPhrases.some((p) => containsPhrase(textTokens, p))) return { relevant: true };
+  if (textTokens.some((t) => profile.specificTokens.has(t))) return { relevant: true };
+
+  return { relevant: false, reason: "weak-positive-only" };
 }
 
 /**
- * Vertical-aware default negative keywords merged with any explicit ones, so a
- * fish-bait store does not import shoes, a dog store does not import cat/décor
- * items, etc. Conservative to avoid emptying stores.
+ * Explicit, user-provided negative keywords (normalised + de-duplicated). The
+ * generic product-class layer now handles décor/hardware/aquarium/species drift,
+ * so this no longer injects vertical token lists (which previously caused bare
+ * "cat" to reject legitimate dog products).
  */
 export function deriveNegativeKeywords(input: CategoryStrategyInput): string[] {
-  const profile = buildRelevanceProfile(input);
-  return uniqueLower([...(input.negativeKeywords ?? []), ...profile.negativeTokens]);
+  return uniqueLower(input.negativeKeywords ?? []);
 }

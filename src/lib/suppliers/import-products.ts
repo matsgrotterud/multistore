@@ -3,6 +3,7 @@ import {
   approveCandidate,
   discoverProductsForStore,
   importCandidateToProduct,
+  rejectCandidate,
 } from "@/lib/catalog/candidate-service";
 import {
   buildRelevanceProfile,
@@ -11,6 +12,39 @@ import {
 } from "@/lib/ai/category-strategy";
 import type { SupplierAdapter } from "@/lib/suppliers/types";
 import type { ProviderKey } from "@/lib/suppliers/providers/types";
+
+/**
+ * Build an evidence-based relevance profile for a store from its real plan:
+ * niche + all category names + stored supplier import queries + negatives. This
+ * gives the profile rich, data-driven vocabulary (no per-niche hardcoding).
+ */
+async function buildStoreRelevanceProfile(
+  store: { id: string; niche: string },
+  negativeKeywords: string[],
+  extraQueries: string[] = []
+): Promise<RelevanceProfile> {
+  const [categories, settings] = await Promise.all([
+    prisma.category.findMany({ where: { storeId: store.id }, select: { name: true } }),
+    prisma.storeSupplierSettings.findFirst({
+      where: { storeId: store.id },
+      select: { importQueries: true },
+    }),
+  ]);
+  let storedQueries: string[] = [];
+  try {
+    storedQueries = settings?.importQueries ? (JSON.parse(settings.importQueries) as string[]) : [];
+  } catch {
+    storedQueries = [];
+  }
+  const queries = [...storedQueries, ...extraQueries].filter(Boolean);
+  return buildRelevanceProfile({
+    niche: store.niche,
+    categoryHints: categories.map((c) => c.name),
+    supplierSearchHints: queries,
+    importQueries: queries,
+    negativeKeywords,
+  });
+}
 
 /**
  * Compatibility wrapper for the old generator/admin flow.
@@ -115,10 +149,20 @@ export async function importProductsForStore(options: {
   const negativeKeywords = (options.negativeKeywords ?? [])
     .map((keyword) => keyword.toLowerCase().trim())
     .filter(Boolean);
-  const relevanceProfile = buildRelevanceProfile({ niche: store.niche });
-  for (const candidate of candidates.filter((candidate) =>
-    isRelevantCandidate(candidate, queries, store.niche, negativeKeywords, relevanceProfile)
-  )) {
+  const relevanceProfile = await buildStoreRelevanceProfile(store, negativeKeywords, queries);
+  for (const candidate of candidates) {
+    const verdict = evaluateRelevance(
+      relevanceProfile,
+      candidate.titleRaw,
+      candidate.descriptionRaw,
+      negativeKeywords
+    );
+    if (!verdict.relevant) {
+      // Record why an ENRICHED candidate was dropped at import time so debug
+      // output explains it instead of silently leaving it ENRICHED.
+      await rejectCandidate(candidate.id, `Relevance: ${verdict.reason ?? "not relevant"}`);
+      continue;
+    }
     await approveCandidate(candidate.id);
     const productId = await importCandidateToProduct(candidate.id);
     const product = await prisma.product.findUnique({
@@ -158,7 +202,7 @@ export async function importRelevantEnrichedCandidates(options: {
   const negativeKeywords = (options.negativeKeywords ?? [])
     .map((keyword) => keyword.toLowerCase().trim())
     .filter(Boolean);
-  const relevanceProfile = buildRelevanceProfile({ niche: store.niche });
+  const relevanceProfile = await buildStoreRelevanceProfile(store, negativeKeywords);
 
   const candidates = await prisma.productCandidate.findMany({
     where: {
@@ -172,7 +216,14 @@ export async function importRelevantEnrichedCandidates(options: {
 
   for (const candidate of candidates) {
     if (result.imported >= options.remaining) break;
-    if (!isRelevantCandidate(candidate, [store.niche], store.niche, negativeKeywords, relevanceProfile)) {
+    const verdict = evaluateRelevance(
+      relevanceProfile,
+      candidate.titleRaw,
+      candidate.descriptionRaw,
+      negativeKeywords
+    );
+    if (!verdict.relevant) {
+      await rejectCandidate(candidate.id, `Relevance: ${verdict.reason ?? "not relevant"}`);
       continue;
     }
     try {
@@ -216,72 +267,3 @@ function uniqueQueries(values: string[]): string[] {
     .slice(0, 5);
 }
 
-function isRelevantCandidate(
-  candidate: { titleRaw: string; descriptionRaw: string | null },
-  queries: string[],
-  niche: string,
-  negativeKeywords: string[] = [],
-  profile?: RelevanceProfile
-): boolean {
-  const haystack = `${candidate.titleRaw} ${candidate.descriptionRaw ?? ""}`.toLowerCase();
-  // Explicit/vertical negative keywords reject obviously wrong verticals.
-  if (negativeKeywords.some((keyword) => haystack.includes(keyword))) {
-    return false;
-  }
-  if (isChildToyNiche(niche) && /\b(pet|cat|dog|bird|parrot|hamster|rabbit)\b/i.test(haystack)) {
-    return false;
-  }
-
-  // For known verticals, require positive niche/end-user evidence and reject
-  // species/decor/doll mismatches. Generic niches keep the query-term fallback.
-  if (profile && profile.requirePositive) {
-    return evaluateRelevance(profile, candidate.titleRaw, candidate.descriptionRaw, negativeKeywords)
-      .relevant;
-  }
-
-  const bestMatch = Math.max(
-    ...queries.map((query) => {
-      const terms = importantTerms(query);
-      if (terms.length === 0) return 0;
-      return terms.filter((term) => haystack.includes(term)).length;
-    })
-  );
-  return bestMatch >= 1;
-}
-
-/**
- * True only for *children's* niches — used to keep pet products out of a kids'
- * store. Must require an explicit child indicator: matching bare "toy"/"toys"
- * wrongly classified niches like "vegan dog toys" and rejected every result.
- */
-function isChildToyNiche(value: string): boolean {
-  return /(child|children|kid|kids|toddler|baby|infant|nursery)/i.test(value);
-}
-
-function importantTerms(value: string): string[] {
-  const generic = new Set([
-    "best",
-    "seller",
-    "sellers",
-    "product",
-    "products",
-    "store",
-    "safe",
-    "material",
-    "materials",
-    "children",
-    "child",
-    "kids",
-    "kid",
-    "toy",
-    "toys",
-    "vegan",
-    "for",
-    "and",
-    "the",
-  ]);
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((term) => term.length >= 3 && !generic.has(term));
-}

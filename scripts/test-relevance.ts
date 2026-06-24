@@ -1,13 +1,16 @@
 import {
   buildCategoryImportQueries,
   buildRelevanceProfile,
-  deriveNegativeKeywords,
   evaluateRelevance,
+  type RelevanceProfile,
 } from "@/lib/ai/category-strategy";
 
 /**
- * Deterministic, offline assertions for Generator V2 supplier relevance.
- * Run: pnpm run relevance:test
+ * Deterministic, offline assertions for the generalized evidence-based candidate
+ * relevance gate. Run: pnpm run relevance:test
+ *
+ * dog toys / fish bait / green shoes are used only as TEST FIXTURES — the
+ * production logic is data-driven from the store plan, not per-niche blacklists.
  */
 
 let failures = 0;
@@ -20,70 +23,75 @@ function assert(label: string, condition: boolean) {
   }
 }
 
-function relevant(niche: string, title: string, description = ""): boolean {
-  const profile = buildRelevanceProfile({ niche });
-  const negatives = deriveNegativeKeywords({ niche });
-  return evaluateRelevance(profile, title, description, negatives).relevant;
+function accept(profile: RelevanceProfile, title: string, description = ""): boolean {
+  return evaluateRelevance(profile, title, description, []).relevant;
+}
+function reject(profile: RelevanceProfile, title: string, description = ""): boolean {
+  return !evaluateRelevance(profile, title, description, []).relevant;
 }
 
-console.log("\n[dog niche: vegan dog toys] — must REJECT mismatches");
-assert("reject cat collar", !relevant("vegan dog toys", "Naughty Cat Collar Pet Trick Or Treat Pumpkin Collar"));
-assert("reject halloween wall ornament", !relevant("vegan dog toys", "Halloween Resin Ornaments Trick Or Treat Ghost Wall Decoration"));
-assert("reject generic doll plush", !relevant("vegan dog toys", "Devil Frog Doll Plush Toys"));
-console.log("[dog niche] — must ACCEPT real dog toys");
-assert("accept squeaky chew dog toy", relevant("vegan dog toys", "Interactive Dog Toys For Aggressive Chewers Dog Squeaky Toys Pet"));
-assert("accept dog treat dispenser", relevant("vegan dog toys", "Adjustable Treat Dispenser Toy For Dogs Interactive IQ"));
-assert("accept dog chew toy", relevant("vegan dog toys", "Giraffe Bite Resistant Pet Dog Chew Toys For Small Dogs"));
-assert("accept dog plush doll (context rescue)", relevant("vegan dog toys", "Plush Dog Doll Squeaky Toy For Puppy"));
+/* ---------------------------- dog toys ---------------------------- */
+const dog = buildRelevanceProfile({
+  niche: "vegan dog toys",
+  endUser: "dogs",
+  supplierSearchHints: ["dog chew toy", "dog treat dispenser", "dog puzzle feeder", "squeaky dog toy", "rope dog toy"],
+  negativeKeywords: ["cat collar", "kitten", "halloween decoration"],
+});
+console.log("\n[dog toys]");
+assert("accept squeaky chew dog toy", accept(dog, "Interactive Dog Toys For Aggressive Chewers Dog Squeaky Toys"));
+assert("accept dog toy whose description mentions cats", accept(dog, "Durable Dog Chew Rope Toy", "Great pet toy suitable for both dogs and cats."));
+assert("accept dog/cat dual feeder with strong dog evidence", accept(dog, "Dog Cat Slow Feeding Ball Food Leakage Toy"));
+assert("reject cat collar with no dog evidence", reject(dog, "Naughty Cat Collar Pet Trick Or Treat Pumpkin Collar"));
+assert("reject halloween ornament/decor", reject(dog, "Halloween Resin Ornaments Trick Or Treat Ghost Wall Decoration"));
+assert("reject generic doll (no dog evidence)", reject(dog, "Devil Frog Doll Plush Toys"));
+assert("accept dog plush doll (dog context rescue)", accept(dog, "Plush Dog Doll Squeaky Toy For Puppy"));
 
-console.log("\n[fishing niche: fish bait] — must REJECT non-fishing");
-assert("reject shoes", !relevant("fish bait", "Green Running Shoes Sneakers"));
-assert("reject aquarium decor", !relevant("fish bait", "Aquarium Decoration Resin Ornament"));
-assert("reject doll toy", !relevant("fish bait", "Kids Plush Doll Toy"));
-console.log("[fishing niche] — must ACCEPT tackle");
-assert("accept soft lure", relevant("fish bait", "Soft Fishing Lure Bait Set Bass"));
-assert("accept carp rig", relevant("fish bait", "Carp Fishing Hook Rig Tackle"));
+/* ---------------------------- fish bait ---------------------------- */
+const fish = buildRelevanceProfile({
+  niche: "fish bait",
+  endUser: "anglers",
+  supplierSearchHints: ["soft fishing bait", "hard fishing lure", "bass lure", "fishing rig", "fishing hook", "tackle box"],
+  categoryHints: ["Soft Baits", "Hard Lures", "Hooks & Rigs", "Lines & Leaders", "Tackle Storage"],
+  negativeKeywords: ["aquarium decoration", "toy fish"],
+});
+console.log("\n[fish bait]");
+assert("accept fishing lure", accept(fish, "Soft Fishing Lure Bait Set Bass Swimbait"));
+assert("accept soft fishing bait", accept(fish, "Soft Plastic Fishing Bait Worm Lure"));
+assert("accept fishing hook with fishing context", accept(fish, "Fishing Hook Set Treble Hooks Saltwater Sharp"));
+assert("reject drywall hooks", reject(fish, "Hook 100 Pieces Set For Drywall, Plywood And Wood Hooks"));
+assert("reject s-hooks / generic hardware hooks", reject(fish, "4 Rubber S-hooks Heavy Duty"));
+assert("reject towel rack hooks", reject(fish, "Stainless Steel Hooks Suit Bath Towel Rack"));
+assert("reject fish tank filter / aquarium media", reject(fish, "Fish Tank Filter Material Aquarium Bio Media"));
+assert("reject aquarium decoration", reject(fish, "Aquarium Decoration Resin Ornament Castle"));
 
-console.log("\n[footwear niche: green shoes] — must REJECT non-footwear");
-assert("reject toy keychain", !relevant("green shoes", "Mini Toy Car Keychain"));
-assert("reject figurine ornament", !relevant("green shoes", "Resin Figurine Ornament Decor"));
-console.log("[footwear niche] — must ACCEPT shoes");
-assert("accept running sneakers", relevant("green shoes", "Sustainable Running Sneakers Trail Shoes"));
+/* ---------------------------- green shoes ---------------------------- */
+const shoes = buildRelevanceProfile({
+  niche: "green shoes",
+  supplierSearchHints: ["green sneakers", "sustainable shoes", "running shoes", "trail shoes"],
+});
+console.log("\n[green shoes]");
+assert("accept running / trail sneakers", accept(shoes, "Sustainable Running Sneakers Trail Shoes Breathable"));
+assert("accept eco trail running shoes", accept(shoes, "Eco Trail Running Shoes Mens"));
+assert("reject toy shoes", reject(shoes, "Plastic Toy Shoes Play Set For Kids"));
+assert("reject doll shoes", reject(shoes, "Fashion Doll Shoes Accessories"));
+assert("reject shoe keychain", reject(shoes, "Cute Mini Shoe Keychain Pendant"));
+assert("reject miniature shoes figurine", reject(shoes, "Miniature Shoes Figurine Ornament Decor"));
 
+/* -------------------- generic: one weak token is not enough -------------------- */
+console.log("\n[evidence threshold]");
+assert("one generic token alone is insufficient", reject(fish, "Rubber Ball Small"));
+assert("a single specific niche token is sufficient", accept(fish, "Telescopic Fishing Rod"));
+const chairs = buildRelevanceProfile({ niche: "ergonomic office chairs" });
+assert("data-driven niche accepts on-niche product", accept(chairs, "Ergonomic Mesh Office Chair Lumbar Support"));
+assert("data-driven niche rejects unrelated weak token", reject(chairs, "Stainless Steel Spoon Set"));
+
+/* ---------------------------- query refinement ---------------------------- */
 console.log("\n[query refinement: dog Treat Puzzles]");
 const dogTreatQueries = buildCategoryImportQueries({ niche: "vegan dog toys" }, "Treat Puzzles");
 console.log(`  queries: ${dogTreatQueries.join(" · ")}`);
 assert("includes 'dog treat dispenser toy'", dogTreatQueries.includes("dog treat dispenser toy"));
 assert("includes 'dog puzzle feeder'", dogTreatQueries.includes("dog puzzle feeder"));
 assert("no bare 'Treat Puzzles'", !dogTreatQueries.some((q) => q.toLowerCase() === "treat puzzles"));
-
-console.log("\n[cross-species: dog niche treats 'cat' as conditional, not hard]");
-// Supplier dog products routinely mention "cat" in dual-species descriptions.
-// These must be KEPT; only cat-ONLY items (no dog evidence) are rejected.
-assert(
-  "accept dog toy whose description mentions cats",
-  relevant("vegan dog toys", "Durable Dog Chew Rope Toy", "Great pet toy suitable for both dogs and cats.")
-);
-assert(
-  "accept dog/cat dual feeder (has dog evidence)",
-  relevant("vegan dog toys", "Dog Cat Slow Feeding Ball Food Leakage Toy")
-);
-assert(
-  "reject cat-only product (no dog evidence)",
-  !relevant("vegan dog toys", "Cat Scratcher Post Catnip Kitten Toy")
-);
-
-console.log("\n[negative keywords: dog niche]");
-const dogNeg = deriveNegativeKeywords({ niche: "vegan dog toys" });
-console.log(`  negatives: ${dogNeg.join(", ")}`);
-assert("dog negatives exclude bare 'cat' (now conditional)", !dogNeg.includes("cat"));
-assert("dog negatives include 'ornament'", dogNeg.includes("ornament"));
-
-console.log("\n[generic niche stays loose: ergonomic office chairs]");
-assert(
-  "generic niche does not require positive vertical evidence",
-  buildRelevanceProfile({ niche: "ergonomic office chairs" }).requirePositive === false
-);
 
 if (failures > 0) {
   console.error(`\n${failures} assertion(s) FAILED`);
