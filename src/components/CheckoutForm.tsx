@@ -172,10 +172,12 @@ export function CheckoutForm({
       });
       setResult(response);
       if (response.ok) {
-        track(storeSlug, "checkout_success", {
-          orderRef: response.orderRef,
-          total: response.total,
-        });
+        if (!response.isTestOrder) {
+          track(storeSlug, "checkout_success", {
+            orderRef: response.orderRef,
+            total: response.total,
+          });
+        }
         cart.clearCart();
       }
     });
@@ -251,7 +253,9 @@ export function CheckoutForm({
         >
           ✓
         </span>
-        <h2 className="text-2xl font-bold text-ink">Thank you for your order!</h2>
+        <h2 className="text-2xl font-bold text-ink">
+          {result.isTestOrder ? "Test checkout completed" : "Thank you for your order!"}
+        </h2>
         <p className="text-sm text-ink/70">
           Order reference: <strong>{result.orderRef}</strong>
         </p>
@@ -261,8 +265,9 @@ export function CheckoutForm({
           </p>
         )}
         <p className="max-w-md text-sm leading-6 text-ink/60">
-          A confirmation with tracking details follows by email once the
-          supplier hands your parcel to the carrier.
+          {result.isTestOrder
+            ? "No payment, customer record, sales event or supplier order was created."
+            : "A confirmation with tracking details follows by email once your parcel is handed to the carrier."}
         </p>
         <Link href={cart.href("/")} className="btn-primary mt-3">
           Continue shopping
@@ -372,7 +377,7 @@ export function CheckoutForm({
                   : "Continue to payment"
                 : isPending
                   ? "Placing order…"
-                  : "Place order"}
+                  : "Run test checkout"}
             </button>
             <p className="text-xs leading-5 text-ink/50">
               By placing the order you accept the{" "}

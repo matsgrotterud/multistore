@@ -20,7 +20,9 @@ export function isStripeConfigured(): boolean {
 }
 
 export function isMockCheckoutEnabled(): boolean {
-  return process.env.MOCK_CHECKOUT !== "false";
+  // Mock checkout must be explicitly enabled. A missing production variable
+  // must never turn a public storefront into a test checkout.
+  return process.env.MOCK_CHECKOUT === "true";
 }
 
 export function paymentCaptureMode(): "automatic" | "manual" {

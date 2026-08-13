@@ -1,11 +1,7 @@
 "use server";
 
-import { prisma } from "@/lib/db";
-import { persistOrderFromCheckout } from "@/lib/orders/persist-order";
 import { prepareCheckout } from "@/lib/orders/prepare-checkout";
-import { routeOrder } from "@/lib/orders/route-order";
 import { isMockCheckoutEnabled } from "@/lib/payments/stripe-client";
-import { toJson } from "@/lib/utils/json";
 
 export interface CheckoutResult {
   ok: boolean;
@@ -18,12 +14,13 @@ export interface CheckoutResult {
   clientSecret?: string;
   publishableKey?: string;
   useStripe?: boolean;
+  isTestOrder?: boolean;
 }
 
 /**
- * Mock checkout path (MOCK_CHECKOUT=true): validates, persists Order + Customer,
- * routes fulfillment, records analytics. Stripe checkout uses
- * /api/checkout/create-payment-intent instead.
+ * Mock checkout path (MOCK_CHECKOUT=true): validates the customer-facing flow
+ * without persisting a sale, recording conversion analytics, charging money or
+ * calling a supplier. Stripe checkout uses /api/checkout/create-payment-intent.
  */
 export async function placeOrder(input: unknown): Promise<CheckoutResult> {
   if (!isMockCheckoutEnabled()) {
@@ -34,7 +31,7 @@ export async function placeOrder(input: unknown): Promise<CheckoutResult> {
     };
   }
 
-  const prepared = await prepareCheckout(input);
+  const prepared = await prepareCheckout(input, { mode: "MOCK" });
   if (!prepared.ok) {
     return {
       ok: false,
@@ -44,51 +41,13 @@ export async function placeOrder(input: unknown): Promise<CheckoutResult> {
   }
 
   const checkout = prepared.checkout;
-  const { order } = await persistOrderFromCheckout(prisma, checkout, {
-    paymentProvider: "mock",
-    paymentStatus: "AUTHORIZED",
-    orderStatus: "CONFIRMED",
-  });
-
-  const routed = await routeOrder(order.id);
-  if (!routed.ok) {
-    return {
-      ok: false,
-      orderRef: order.orderNumber,
-      orderId: order.id,
-      message: routed.error ?? "Fulfillment failed for this order.",
-    };
-  }
-
-  await prisma.order.update({
-    where: { id: order.id },
-    data: { paymentStatus: "CAPTURED" },
-  });
-
-  await prisma.cartEvent.create({
-    data: {
-      storeId: checkout.storeId,
-      sessionId: "server",
-      eventName: "checkout_success",
-      payload: toJson({
-        orderRef: order.orderNumber,
-        orderId: order.id,
-        subtotal: checkout.subtotal,
-        shipping: checkout.shippingTotal,
-        total: checkout.grandTotal,
-        currency: checkout.currency,
-        itemCount: checkout.lines.reduce((sum, line) => sum + line.quantity, 0),
-        paymentProvider: "mock",
-      }),
-    },
-  });
 
   return {
     ok: true,
-    orderRef: order.orderNumber,
-    orderId: order.id,
+    orderRef: `TEST-${checkout.orderNumber}`,
     total: checkout.grandTotal,
     currency: checkout.currency,
-    message: "Order placed successfully.",
+    isTestOrder: true,
+    message: "Test checkout completed. No payment or supplier order was created.",
   };
 }

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "id": "portfolio.scale-readiness.v1",
+  "description": "Fail-closed readiness policy for the current Multistore portfolio. AI evidence never satisfies these hard rules.",
+  "rules": [
+    {
+      "id": "runtime.typecheck",
+      "level": "HARD",
+      "description": "The repository must typecheck before a store can be treated as launch-ready.",
+      "predicate": { "op": "eq", "fact": "runtime.typecheck", "value": true }
+    },
+    {
+      "id": "runtime.local-smoke",
+      "level": "HARD",
+      "description": "The local storefront smoke test must be attested separately.",
+      "predicate": { "op": "eq", "fact": "runtime.local-smoke", "value": true }
+    },
+    {
+      "id": "tenant.single-domain-authority",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "tenant.single-domain-authority", "value": true }
+    },
+    {
+      "id": "tenant.unknown-host-fails-closed",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "tenant.unknown-host-fails-closed", "value": true }
+    },
+    {
+      "id": "commerce.preview-checkout-blocked",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "commerce.preview-checkout-blocked", "value": true }
+    },
+    {
+      "id": "commerce.mock-isolated-from-suppliers",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "commerce.mock-isolated-from-suppliers", "value": true }
+    },
+    {
+      "id": "commerce.fulfillment-idempotent",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "commerce.fulfillment-idempotent", "value": true }
+    },
+    {
+      "id": "commerce.single-fulfillment-route",
+      "level": "HARD",
+      "description": "Mixed supplier checkout stays disabled until the fulfillment saga is proven.",
+      "predicate": { "op": "eq", "fact": "commerce.single-fulfillment-route", "value": true }
+    },
+    {
+      "id": "commerce.refunds-operable",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "commerce.refunds-operable", "value": true }
+    },
+    {
+      "id": "product.compliance-dossier",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "product.compliance-dossier", "value": true }
+    },
+    {
+      "id": "product.recall-operable",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "product.recall-operable", "value": true }
+    },
+    {
+      "id": "security.production-auth",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "security.production-auth", "value": true }
+    },
+    {
+      "id": "media.production-storage",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "media.production-storage", "value": true }
+    },
+    {
+      "id": "ai.provider-non-mock",
+      "level": "ADVISORY",
+      "predicate": { "op": "eq", "fact": "ai.provider-non-mock", "value": true }
+    },
+    {
+      "id": "database.read-only-attested",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "database.read-only-attested", "value": true }
+    },
+    {
+      "id": "database.no-stuck-jobs",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "database.no-stuck-jobs", "value": true }
+    },
+    {
+      "id": "database.no-manual-action-orders",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "database.no-manual-action-orders", "value": true }
+    },
+    {
+      "id": "database.no-preview-published-products",
+      "level": "ADVISORY",
+      "predicate": { "op": "eq", "fact": "database.no-preview-published-products", "value": true }
+    },
+    {
+      "id": "domain.no-routing-drift",
+      "level": "HARD",
+      "predicate": { "op": "eq", "fact": "domain.no-routing-drift", "value": true }
+    }
+  ]
+}

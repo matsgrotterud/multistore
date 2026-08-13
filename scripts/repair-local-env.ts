@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import {
-  DB_ENV_KEYS,
   extractDatabaseAssignmentsFromText,
   sanitizeDatabaseUrl,
   uniqueUrlKey,

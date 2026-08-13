@@ -6,7 +6,6 @@ import type {
   FulfillmentMode,
   PreparedCheckout,
 } from "@/lib/orders/types";
-import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
 import { getCommerceProvider } from "@/lib/suppliers/providers/registry";
 import { checkoutSchema } from "@/lib/validation/schemas";
 import { parseJsonObject } from "@/lib/utils/json";
@@ -34,7 +33,15 @@ function manualFulfillmentEnabled(): boolean {
   return process.env.MANUAL_FULFILLMENT_ENABLED === "true";
 }
 
-export async function prepareCheckout(input: unknown): Promise<
+export interface PrepareCheckoutOptions {
+  /** MOCK validates the customer experience but never requires or calls a supplier. */
+  mode?: "LIVE" | "MOCK";
+}
+
+export async function prepareCheckout(
+  input: unknown,
+  options: PrepareCheckoutOptions = {}
+): Promise<
   | { ok: true; checkout: PreparedCheckout }
   | { ok: false; message: string; fieldErrors?: Record<string, string> }
 > {
@@ -51,8 +58,13 @@ export async function prepareCheckout(input: unknown): Promise<
   }
 
   const data = parsed.data;
+  const mode = options.mode ?? "LIVE";
   const store = await prisma.store.findUnique({ where: { slug: data.storeSlug } });
   if (!store) return { ok: false, message: "Unknown store." };
+  if (!store.isActive) return { ok: false, message: "This store is not active." };
+  if (mode === "LIVE" && store.launchStatus !== "LIVE") {
+    return { ok: false, message: "This store is not open for live checkout." };
+  }
 
   const products = await prisma.product.findMany({
     where: {
@@ -100,13 +112,17 @@ export async function prepareCheckout(input: unknown): Promise<
         message: `"${product.title}" is sold via an external partner link — use View deal on the product page.`,
       };
     }
-    if (fulfillmentMode === "MANUAL" && !manualFulfillmentEnabled()) {
+    if (
+      mode === "LIVE" &&
+      fulfillmentMode === "MANUAL" &&
+      !manualFulfillmentEnabled()
+    ) {
       return {
         ok: false,
         message: `"${product.title}" is not available for checkout at this time.`,
       };
     }
-    if (fulfillmentMode === "DROPSHIP") {
+    if (mode === "LIVE" && fulfillmentMode === "DROPSHIP") {
       if (!product.externalId) {
         return {
           ok: false,
@@ -125,25 +141,17 @@ export async function prepareCheckout(input: unknown): Promise<
         };
       }
 
-      const canUseManualCjFallback =
-        providerKey === "cj" && isCjManualFulfillmentEnabled();
-
       if (!provider.capabilities.checkout || !provider.createDropshipOrder) {
-        if (canUseManualCjFallback) {
-          // The order can be paid and queued for manual CJ placement later.
-        } else {
-          return {
-            ok: false,
-            message: `"${product.title}" cannot be sold through checkout until ${provider.name} checkout is enabled.`,
-          };
-        }
+        return {
+          ok: false,
+          message: `"${product.title}" cannot be sold through checkout until ${provider.name} checkout is enabled.`,
+        };
       }
 
       if (
         selectedVariant &&
         !selectedVariant.externalVariantId &&
-        !selectedVariant.sku &&
-        canUseManualCjFallback === false
+        !selectedVariant.sku
       ) {
         return {
           ok: false,
@@ -193,6 +201,19 @@ export async function prepareCheckout(input: unknown): Promise<
         `[margin-safe] Checkout line below ${MARGIN_SAFE_THRESHOLD}% margin: ` +
           `${store.slug}/${product.slug} at ${margin.grossMarginPercent}%`
       );
+    }
+  }
+
+  if (mode === "LIVE") {
+    const fulfillmentRoutes = new Set(
+      lines.map((line) => `${line.fulfillmentMode}:${line.providerKey ?? "none"}`)
+    );
+    if (fulfillmentRoutes.size > 1) {
+      return {
+        ok: false,
+        message:
+          "These items cannot yet be combined safely in one order. Please check out items from one fulfillment route at a time.",
+      };
     }
   }
 

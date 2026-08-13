@@ -25,6 +25,21 @@ const nextConfig: NextConfig = {
   },
   // Multi-tenant rewrites are handled in src/middleware.ts based on the Host
   // header, so no static rewrites are needed here.
+  webpack: (config, { dev }) => {
+    if (!dev) return config;
+
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: [
+        "**/.git/**",
+        "**/.next/**",
+        "**/.cache/**",
+        "**/.pnpm-store/**",
+        "**/node_modules/**",
+      ],
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

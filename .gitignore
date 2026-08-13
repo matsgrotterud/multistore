@@ -2,6 +2,8 @@ node_modules
 .next
 out
 dist
+.cache
+.pnpm-store
 
 # local database
 prisma/dev.db

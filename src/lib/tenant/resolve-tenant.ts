@@ -55,7 +55,9 @@ export async function resolveStoreForRequest(options: {
   host?: string | null;
   storeParam?: string | null;
 }): Promise<StoreWithTheme | null> {
-  if (options.storeParam) {
+  const allowDevelopmentFallback = process.env.NODE_ENV !== "production";
+
+  if (allowDevelopmentFallback && options.storeParam) {
     const bySlug = await getStoreBySlug(options.storeParam);
     if (bySlug) return bySlug;
   }
@@ -66,5 +68,5 @@ export async function resolveStoreForRequest(options: {
       if (byHost) return byHost;
     }
   }
-  return getStoreBySlug(DEFAULT_STORE_SLUG);
+  return allowDevelopmentFallback ? getStoreBySlug(DEFAULT_STORE_SLUG) : null;
 }

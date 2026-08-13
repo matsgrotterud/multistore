@@ -80,13 +80,12 @@ const inlineSpinnerClass =
  * happening now" and never claim a specific step finished.
  */
 const STATUS_MESSAGES = [
-  "Creating the store blueprint",
-  "Building categories and content",
-  "Searching supplier products",
-  "Fetching product details",
-  "Importing product media",
-  "Creating product pages and variants",
-  "Preparing preview links",
+  "Building store blueprint",
+  "Planning categories and supplier searches",
+  "Searching supplier catalog",
+  "Checking product relevance",
+  "Saving media to storage",
+  "Publishing preview products",
 ] as const;
 
 /**
@@ -146,14 +145,25 @@ function GenerationProgress() {
   );
 }
 
-function LaunchFailure({ error }: { error: string }) {
+function LaunchFailure({
+  error,
+  onRetry,
+  retrying,
+}: {
+  error: string;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
   return (
     <div
       role="alert"
       className="mt-4 rounded-xl border border-red-300 bg-red-50 p-5 text-sm text-red-950"
     >
       <p className="text-base font-bold">Generation failed</p>
-      <p className="mt-1 font-mono text-xs text-red-800">{error}</p>
+      <p className="mt-1">
+        Something went wrong while creating the store. Your form input has been kept — you can
+        adjust it and try again.
+      </p>
       <p className="mt-3 text-xs text-red-900">
         The store may have been <strong>partially created</strong> (store, categories or some
         products) before the error. Nothing is shown as published unless it succeeded.
@@ -172,6 +182,28 @@ function LaunchFailure({ error }: { error: string }) {
         </li>
         <li>Adjust the niche / product keywords and try again.</li>
       </ul>
+
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          aria-busy={retrying}
+          className="mt-4 inline-flex items-center gap-2 rounded-md bg-red-700 px-3 py-2 text-xs font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {retrying && <span className={inlineSpinnerClass} aria-hidden="true" />}
+          {retrying ? "Retrying…" : "Try again"}
+        </button>
+      )}
+
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs font-medium text-red-800">
+          Technical error details
+        </summary>
+        <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-red-100 p-3 text-[11px] leading-5 text-red-900">
+          {error}
+        </pre>
+      </details>
     </div>
   );
 }
@@ -250,8 +282,34 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
   );
 }
 
+/**
+ * Distinct, real category links derived from imported product preview paths
+ * (`/s/{slug}/c/{category}/p/{product}`). The result object does not return
+ * category slugs directly, so we only show links we can prove exist.
+ */
+function categoryLinksFromResult(result: CreateStoreFromBlueprintResult) {
+  const seen = new Map<string, string>();
+  for (const product of result.products) {
+    const match = product.previewPath.match(/^(\/s\/[^/]+\/c\/([^/]+))\//);
+    if (match && !seen.has(match[1])) {
+      seen.set(match[1], match[2].replace(/-/g, " "));
+    }
+  }
+  return [...seen.entries()].map(([path, label]) => ({ path, label }));
+}
+
+function Stat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md bg-white/70 px-2.5 py-1.5">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-emerald-700">{label}</dt>
+      <dd className="text-sm font-bold text-emerald-950">{value}</dd>
+    </div>
+  );
+}
+
 function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
   const mediaCount = result.products.reduce((total, product) => total + product.imageCount, 0);
+  const categoryLinks = categoryLinksFromResult(result);
   return (
     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
       <p className="text-lg font-bold">Store created — preview ready</p>
@@ -259,13 +317,38 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
         <strong>{result.storeName}</strong> is live in <strong>Preview</strong> mode (noindex until
         you connect a production domain).
       </p>
+
+      <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <Stat label="Categories" value={result.categoriesCreated} />
+        <Stat label="Discovered" value={result.productsDiscovered} />
+        <Stat label="Rejected" value={result.candidatesRejected} />
+        <Stat label="Imported" value={result.productsImported} />
+        <Stat label="Published" value={result.productsPublished} />
+        <Stat label="No media" value={result.productsWithoutMedia} />
+        <Stat label="Images" value={mediaCount} />
+        <Stat label="Guides" value={result.guidesCreated} />
+      </dl>
+
+      {categoryLinks.length > 0 && (
+        <div className="mt-3 text-xs">
+          <p className="font-semibold">Categories</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {categoryLinks.map((category) => (
+              <a
+                key={category.path}
+                href={category.path}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-emerald-900 ring-1 ring-emerald-200 hover:bg-emerald-100"
+              >
+                {category.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
       <ul className="mt-3 space-y-1 text-xs">
-        <li>
-          {result.categoriesCreated} categories · {result.productsDiscovered} discovered ·{" "}
-          {result.candidatesRejected} rejected · {result.productsImported} imported ·{" "}
-          {result.productsPublished} published · {result.productsWithoutMedia} without media ·{" "}
-          {mediaCount} images · {result.guidesCreated} guide
-        </li>
         {result.importQueries.length > 0 && (
           <li className="font-mono text-[11px]">
             queries: {result.importQueries.slice(0, 8).join(" · ")}
@@ -846,7 +929,13 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
             </div>
           )}
 
-          {launchResult?.error && <LaunchFailure error={launchResult.error} />}
+          {launchResult?.error && (
+            <LaunchFailure
+              error={launchResult.error}
+              onRetry={handleLaunchStore}
+              retrying={isLaunchPending}
+            />
+          )}
           {launchResult?.data && <LaunchSuccess result={launchResult.data} />}
 
           {blueprintResult?.blueprint && (
