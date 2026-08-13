@@ -79,5 +79,6 @@ export interface ClientProduct {
   affiliateUrl: string | null;
   providerKey: string | null;
   checkoutAvailable: boolean;
+  hasVariants: boolean;
   variants: ClientProductVariant[];
 }

@@ -509,9 +509,11 @@ function EnvStatusPanel({ safety }: { safety: MediaSafetyProps }) {
       {safety.unsafe && (
         <p className="mt-2">
           <strong>Unsafe:</strong> connected to a remote database with local media storage. Store
-          creation is blocked to avoid writing <code>/uploads/dev-media</code> URLs into the remote
-          DB. Set <code className="rounded bg-red-100 px-1">MEDIA_STORAGE_PROVIDER=vercel-blob</code>{" "}
-          (with a Blob token) or generate from the deployed admin.
+          creation with supplier-product import is blocked to avoid writing{" "}
+          <code>/uploads/dev-media</code> URLs into the remote DB. Turn off product import for a
+          structure-only preview, or set{" "}
+          <code className="rounded bg-red-100 px-1">MEDIA_STORAGE_PROVIDER=vercel-blob</code> with
+          valid Blob authentication.
         </p>
       )}
       {!safety.unsafe && safety.dbIsRemote && safety.effectiveProvider === "local" && (
@@ -903,6 +905,7 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                   <input
                     type="checkbox"
                     checked={autoPublish}
+                    disabled={!importProducts}
                     onChange={(event) => setAutoPublish(event.target.checked)}
                   />
                   Auto-publish high-scoring imports
@@ -910,18 +913,29 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
               </div>
               <button
                 type="button"
-                disabled={isLaunchPending || Boolean(mediaSafety?.unsafe)}
+                disabled={isLaunchPending || Boolean(mediaSafety?.unsafe && importProducts)}
                 aria-busy={isLaunchPending}
                 onClick={handleLaunchStore}
                 className="mt-4 inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLaunchPending && <span className={inlineSpinnerClass} aria-hidden="true" />}
-                {isLaunchPending ? "Generating store…" : "Create store & open preview"}
+                {isLaunchPending
+                  ? "Generating store…"
+                  : importProducts
+                    ? "Create store & open preview"
+                    : "Create structure-only preview"}
               </button>
 
-              {mediaSafety?.unsafe && (
+              {mediaSafety?.unsafe && importProducts && (
                 <p className="mt-2 text-xs font-medium text-red-700">
-                  Blocked: remote database + local media storage. See the status panel above.
+                  Product import is blocked: remote database + local media storage. Turn off
+                  product import for a structure-only preview, or configure durable Blob storage.
+                </p>
+              )}
+              {mediaSafety?.unsafe && !importProducts && (
+                <p className="mt-2 text-xs font-medium text-amber-700">
+                  Safe structure-only mode: no supplier media will be written. Products can be
+                  imported later after durable media storage is configured.
                 </p>
               )}
 

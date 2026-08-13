@@ -5,6 +5,7 @@ import { getStorageProvider } from "@/lib/storage/storage-provider";
 import {
   assertSafeMediaWriteContext,
   isLocalDevMediaUrl,
+  isStoredMediaUrlUsable,
 } from "@/lib/storage/media-storage-safety";
 import type { SupplierMedia } from "@/lib/suppliers/providers/types";
 
@@ -47,7 +48,10 @@ export async function ingestProductMedia(
           ...(input.candidateId ? { candidateId: input.candidateId } : {}),
         },
       });
-      if (existingForTarget?.ingestionStatus === "STORED") {
+      const existingForTargetIsUsable =
+        existingForTarget?.ingestionStatus === "STORED" &&
+        isStoredMediaUrlUsable(existingForTarget.storageUrl, storage.name);
+      if (existingForTargetIsUsable) {
         result.skipped += 1;
         continue;
       }

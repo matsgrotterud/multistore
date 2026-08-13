@@ -207,7 +207,41 @@ function isManagedLine(line: string): boolean {
   return MANAGED_KEYS.some((key) => trimmed.startsWith(`${key}=`));
 }
 
-function renderLocalEnv(contents: string, values: { databaseUrl: string; directUrl: string; unpooledUrl: string }): string {
+function lastEnvValue(contents: string, key: string): string | null {
+  let value: string | null = null;
+  for (const line of contents.split("\n")) {
+    const trimmed = line.trim().startsWith("export ")
+      ? line.trim().slice("export ".length).trim()
+      : line.trim();
+    if (!trimmed.startsWith(`${key}=`)) continue;
+    value = trimmed.slice(key.length + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return value;
+}
+
+function chooseMediaStorageProvider(contents: string, databaseUrl: string): "local" | "vercel-blob" {
+  const target = sanitizeDatabaseUrl(databaseUrl);
+  const host = target?.host.toLowerCase() ?? "";
+  const dbIsRemote =
+    Boolean(host) &&
+    host !== "invalid-url" &&
+    !["localhost", "127.0.0.1", "::1", "0.0.0.0", "file"].includes(host) &&
+    !host.endsWith(".local") &&
+    !host.endsWith(".localhost");
+  const baseEnv = readFileIfExists(".env") ?? "";
+  const hasBlobToken = Boolean(
+    lastEnvValue(contents, "BLOB_READ_WRITE_TOKEN") ||
+      lastEnvValue(baseEnv, "BLOB_READ_WRITE_TOKEN")
+  );
+
+  return dbIsRemote && hasBlobToken ? "vercel-blob" : "local";
+}
+
+function renderLocalEnv(
+  contents: string,
+  values: { databaseUrl: string; directUrl: string; unpooledUrl: string },
+  mediaStorageProvider: "local" | "vercel-blob"
+): string {
   const preservedLines = contents
     .split("\n")
     .filter((line) => !isManagedLine(line))
@@ -219,7 +253,7 @@ function renderLocalEnv(contents: string, values: { databaseUrl: string; directU
     `DATABASE_URL=${values.databaseUrl}`,
     `DIRECT_URL=${values.directUrl}`,
     `DATABASE_URL_UNPOOLED=${values.unpooledUrl}`,
-    "MEDIA_STORAGE_PROVIDER=local",
+    `MEDIA_STORAGE_PROVIDER=${mediaStorageProvider}`,
     "NEXT_PUBLIC_SITE_URL=http://localhost:3010",
   ].join("\n");
 
@@ -241,7 +275,11 @@ async function main() {
   const localValues = parseLocalAssignments(localContents);
   const candidates = await Promise.all(collectCandidateUrls().map(probeCandidate));
   const selectedUrls = chooseUrls(candidates, localValues);
-  const nextContents = renderLocalEnv(localContents, selectedUrls);
+  const mediaStorageProvider = chooseMediaStorageProvider(
+    localContents,
+    selectedUrls.databaseUrl
+  );
+  const nextContents = renderLocalEnv(localContents, selectedUrls, mediaStorageProvider);
 
   if (nextContents === localContents) {
     console.log(".env.local is already normalized.");
@@ -256,7 +294,7 @@ async function main() {
   console.log(`Repaired .env.local (${selectedUrls.reason}).`);
   console.log(`DATABASE_URL: ${redact(selectedUrls.databaseUrl)}`);
   console.log(`DIRECT_URL: ${redact(selectedUrls.directUrl)}`);
-  console.log("MEDIA_STORAGE_PROVIDER=local");
+  console.log(`MEDIA_STORAGE_PROVIDER=${mediaStorageProvider}`);
   console.log("NEXT_PUBLIC_SITE_URL=http://localhost:3010");
 }
 

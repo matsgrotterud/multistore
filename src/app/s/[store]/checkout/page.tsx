@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { CheckoutForm } from "@/components/CheckoutForm";
 import { PageViewTracker } from "@/components/PageViewTracker";
+import { isMockCheckoutEnabled } from "@/lib/payments/stripe-client";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { requireStore } from "@/lib/stores/queries";
 import { storefrontHref } from "@/lib/stores/storefront-links";
@@ -27,7 +28,7 @@ export async function generateMetadata({
 export default async function CheckoutPage({ params }: CheckoutPageProps) {
   const { store: slug } = await params;
   const store = await requireStore(slug);
-  const isMockCheckout = process.env.MOCK_CHECKOUT !== "false";
+  const isMockCheckout = isMockCheckoutEnabled();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
@@ -42,8 +43,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
       <h1 className="mt-4 text-3xl font-bold text-ink">Checkout</h1>
       {isMockCheckout && (
         <p className="mt-2 inline-block rounded-theme bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900">
-          Demo mode: checkout runs without payment. Orders are created and routed through mock
-          suppliers.
+          Demo mode: checkout runs without payment. No order or supplier request is created.
         </p>
       )}
       <div className="mt-6">

@@ -1,14 +1,17 @@
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { isCjManualFulfillmentEnabled } from "@/lib/suppliers/providers/cj-auth";
+import { isProductCheckoutAvailable } from "@/lib/stores/checkout-availability";
 import { getStoreBySlug, type StoreWithTheme } from "@/lib/tenant/resolve-tenant";
 import { parseJsonObject, parseStringArray } from "@/lib/utils/json";
 import type { ClientProduct } from "@/lib/types";
 import type { Product, ProductVariant } from "@prisma/client";
 
-/** A catalog product enriched with just its category slug for link building. */
-export type CatalogProduct = Product & { category?: { slug: string } | null };
+/** A catalog product enriched with card-level routing and variant signals. */
+export type CatalogProduct = Product & {
+  category?: { slug: string } | null;
+  _count?: { variants: number };
+};
 
 /**
  * Data access layer for storefront pages. All queries are store-scoped so a
@@ -40,6 +43,7 @@ export const getCategoryWithProducts = cache(
         products: {
           where: { isPublished: true },
           orderBy: { productScore: "desc" },
+          include: { _count: { select: { variants: true } } },
         },
       },
     });
@@ -67,7 +71,10 @@ export const getFeaturedProducts = cache(
       where: { storeId, isPublished: true },
       orderBy: { productScore: "desc" },
       take: limit,
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        _count: { select: { variants: true } },
+      },
     });
   }
 );
@@ -88,7 +95,10 @@ export const getRelatedProducts = cache(
       },
       orderBy: { productScore: "desc" },
       take: limit,
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        _count: { select: { variants: true } },
+      },
     });
     if (sameCategory.length >= limit) return sameCategory;
 
@@ -100,7 +110,10 @@ export const getRelatedProducts = cache(
       },
       orderBy: { productScore: "desc" },
       take: limit - sameCategory.length,
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        _count: { select: { variants: true } },
+      },
     });
     return [...sameCategory, ...filler];
   }
@@ -136,7 +149,10 @@ export const getProductsByIds = cache(
     if (ids.length === 0) return [];
     const products = await prisma.product.findMany({
       where: { storeId, id: { in: ids }, isPublished: true },
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        _count: { select: { variants: true } },
+      },
     });
     // Preserve the order of the ids array.
     type Loaded = (typeof products)[number];
@@ -166,13 +182,17 @@ export async function searchProducts(
     },
     orderBy: { productScore: "desc" },
     take: 24,
-    include: { category: { select: { slug: true } } },
+    include: {
+      category: { select: { slug: true } },
+      _count: { select: { variants: true } },
+    },
   });
 }
 
 type ProductWithVariants = Product & {
   variants?: ProductVariant[];
   category?: { slug: string } | null;
+  _count?: { variants: number };
 };
 
 /** Strip server-only fields (cost, margin) before sending to the client. */
@@ -199,6 +219,7 @@ export function toClientProduct(product: ProductWithVariants): ClientProduct {
     affiliateUrl: product.affiliateUrl,
     providerKey: product.providerKey,
     checkoutAvailable: checkoutAvailableForProduct(product),
+    hasVariants: (product.variants?.length ?? product._count?.variants ?? 0) > 0,
     variants: (product.variants ?? []).map((variant) => ({
       id: variant.id,
       title: variant.title,
@@ -216,28 +237,7 @@ export function toClientProduct(product: ProductWithVariants): ClientProduct {
 }
 
 function checkoutAvailableForProduct(product: Product): boolean {
-  if (product.fulfillmentMode === "AFFILIATE") return false;
-  if (product.fulfillmentMode === "MOCK") return true;
-  if (product.fulfillmentMode === "MANUAL") {
-    return process.env.MANUAL_FULFILLMENT_ENABLED === "true";
-  }
-  if (product.fulfillmentMode !== "DROPSHIP") return false;
-  if (!product.externalId) return false;
-
-  switch (product.providerKey) {
-    case "cj":
-      return (
-        (process.env.CJ_ENABLED === "true" &&
-          process.env.CJ_ORDER_API_ENABLED === "true" &&
-          Boolean(process.env.CJ_LOGISTIC_NAME) &&
-          Boolean(process.env.CJ_FROM_COUNTRY_CODE)) ||
-        isCjManualFulfillmentEnabled()
-      );
-    case "mock":
-      return true;
-    default:
-      return false;
-  }
+  return isProductCheckoutAvailable(product);
 }
 
 function normalizeVariantOptions(raw: string): Record<string, string> {

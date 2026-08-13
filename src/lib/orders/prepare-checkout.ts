@@ -112,6 +112,12 @@ export async function prepareCheckout(
         message: `"${product.title}" is sold via an external partner link — use View deal on the product page.`,
       };
     }
+    if (mode === "LIVE" && fulfillmentMode === "MOCK") {
+      return {
+        ok: false,
+        message: `"${product.title}" is a test product and cannot be purchased through live checkout.`,
+      };
+    }
     if (
       mode === "LIVE" &&
       fulfillmentMode === "MANUAL" &&

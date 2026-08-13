@@ -26,6 +26,14 @@ export function isLocalDevMediaUrl(url: string | null | undefined): boolean {
   return value.startsWith("/") && !value.startsWith("//");
 }
 
+/** A stored asset is reusable only when it exists on the active storage surface. */
+export function isStoredMediaUrlUsable(
+  url: string | null | undefined,
+  provider: "local" | "vercel-blob"
+): boolean {
+  return Boolean(url?.trim()) && !(provider !== "local" && isLocalDevMediaUrl(url));
+}
+
 export interface MediaStorageSafetyReport {
   /** DB hostname only (no credentials), or null if unknown. */
   dbHost: string | null;

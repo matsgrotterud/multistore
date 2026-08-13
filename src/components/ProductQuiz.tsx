@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
+import { ProductCardActions } from "@/components/ProductPurchaseActions";
 import { track } from "@/lib/analytics/track";
 import { subscribeToNewsletter } from "@/lib/actions/newsletter";
 import { formatCurrency } from "@/lib/pricing/calculate-price";
@@ -114,26 +115,9 @@ export function ProductQuiz({
                       Matches: {matchedTags.map((tag) => tag.replace(/-/g, " ")).join(", ")}
                     </p>
                   )}
-                  <button
-                    type="button"
-                    className="mt-2 text-xs font-semibold text-primary underline"
-                    onClick={() =>
-                      cart.addItem({
-                        productId: product.id,
-                        slug: product.slug,
-                        categorySlug: product.categorySlug,
-                        title: product.title,
-                        price: product.price,
-                        currency: product.currency,
-                        imageUrl: product.imageUrl,
-                        imageAlt: product.imageAlt,
-                        shippingDaysMin: product.shippingDaysMin,
-                        shippingDaysMax: product.shippingDaysMax,
-                      })
-                    }
-                  >
-                    Add to cart
-                  </button>
+                  <div className="mt-2">
+                    <ProductCardActions product={product} storeSlug={storeSlug} />
+                  </div>
                 </div>
               </li>
             ))}

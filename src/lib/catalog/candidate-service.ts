@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { buildImportedProductContent } from "@/lib/catalog/build-product-content";
 import { ingestProductMedia } from "@/lib/media/ingest-product-media";
 import { syncProductGallery } from "@/lib/media/sync-product-gallery";
+import { isStoredMediaUrlUsable } from "@/lib/storage/media-storage-safety";
+import { getStorageProvider } from "@/lib/storage/storage-provider";
 import {
   convertCurrency,
   normalizeImportedPrice,
@@ -284,8 +286,15 @@ export async function importCandidateToProduct(candidateId: string): Promise<str
   const media = parseSupplierMedia(candidate.mediaJson);
   const variants = parseSupplierVariants(candidate.variantsJson);
   const defaultVariant = variants.find((variant) => variant.stockStatus !== "OUT_OF_STOCK") ?? variants[0];
+  const storage = getStorageProvider();
+  const storedAssets = candidate.mediaAssets.filter(
+    (asset) =>
+      asset.ingestionStatus === "STORED" &&
+      isStoredMediaUrlUsable(asset.storageUrl, storage.name)
+  );
+  const storedAssetIds = new Set(storedAssets.map((asset) => asset.id));
   const storedPrimary = candidate.mediaAssets.find(
-    (asset) => asset.mediaType === "IMAGE" && asset.ingestionStatus === "STORED" && asset.storageUrl
+    (asset) => asset.mediaType === "IMAGE" && storedAssetIds.has(asset.id)
   );
   const supplierCurrency = candidate.currencyRaw ?? candidate.store.currency;
   const norm = normalizeImportedPrice({
@@ -424,7 +433,6 @@ export async function importCandidateToProduct(candidateId: string): Promise<str
     });
   }
 
-  const storedAssets = candidate.mediaAssets.filter((asset) => asset.ingestionStatus === "STORED");
   if (storedAssets.length > 0) {
     await prisma.productMediaAsset.createMany({
       data: storedAssets.map((asset) => ({

@@ -249,7 +249,7 @@ export function ProductCardActions({
     return <p className="text-xs text-ink/60">Contact support for availability.</p>;
   }
 
-  if (product.variants.length > 0) {
+  if (product.hasVariants) {
     return (
       <Link
         href={cart.href(productRelPath(product.slug, product.categorySlug))}
