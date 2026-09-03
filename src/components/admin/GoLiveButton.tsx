@@ -19,11 +19,11 @@ export function GoLiveButton({ slug, launchStatus }: { slug: string; launchStatu
   }
 
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-      <p className="font-semibold">Preview mode</p>
+    <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-950">
+      <p className="font-semibold">Preview mode · fail-closed go-live</p>
       <p className="mt-1">
-        Storefront works on the preview URL. Pages are noindexed until you connect DNS to your
-        planned domain and mark Live.
+        The storefront stays noindex. Running the gate transitions to Live only when every
+        required generation, human, domain, compliance and commerce check has verified evidence.
       </p>
       <button
         type="button"
@@ -35,11 +35,11 @@ export function GoLiveButton({ slug, launchStatus }: { slug: string; launchStatu
             if (result.ok) router.refresh();
           })
         }
-        className="mt-2 rounded-md bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-950 disabled:opacity-50"
+        className="mt-2 rounded-md bg-red-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-950 disabled:opacity-50"
       >
-        {pending ? "Updating…" : "Mark as Live (domain connected)"}
+        {pending ? "Checking gates…" : "Run go-live gate"}
       </button>
-      {message && <p className="mt-2 text-amber-900">{message}</p>}
+      {message && <p className="mt-2 text-red-900">{message}</p>}
     </div>
   );
 }

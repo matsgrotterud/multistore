@@ -17,9 +17,19 @@ export function StructuredData({
         <script
           key={index}
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(item) }}
+          dangerouslySetInnerHTML={{ __html: serializeStructuredData(item) }}
         />
       ))}
     </>
   );
+}
+
+/** Keep untrusted catalog/admin text from terminating the JSON-LD script tag. */
+export function serializeStructuredData(value: Record<string, unknown>): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FAQAccordion } from "@/components/FAQAccordion";
 import { FilterSidebar } from "@/components/FilterSidebar";
@@ -15,11 +15,11 @@ import {
   getCategoryWithProducts,
   getGuides,
   requireStore,
+  type CatalogProduct,
 } from "@/lib/stores/queries";
-import { storefrontHref } from "@/lib/stores/storefront-links";
+import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
 import { parseStringArray } from "@/lib/utils/json";
 import type { FaqItem } from "@/lib/types";
-import type { Product } from "@prisma/client";
 
 interface CategoryPageProps {
   params: Promise<{ store: string; category: string }>;
@@ -37,9 +37,9 @@ export async function generateMetadata({
 }
 
 function applyFilters(
-  products: Product[],
+  products: CatalogProduct[],
   filters: { maxPrice?: number; maxDays?: number; inStockOnly: boolean; useCase?: string }
-): Product[] {
+): CatalogProduct[] {
   return products.filter((product) => {
     if (filters.maxPrice !== undefined && product.price > filters.maxPrice) return false;
     if (filters.maxDays !== undefined && product.shippingDaysMax > filters.maxDays) return false;
@@ -49,7 +49,7 @@ function applyFilters(
   });
 }
 
-function applySort(products: Product[], sort: string): Product[] {
+function applySort(products: CatalogProduct[], sort: string): CatalogProduct[] {
   const sorted = [...products];
   switch (sort) {
     case "price-asc":
@@ -69,6 +69,9 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
   const store = await requireStore(storeSlug);
   const category = await getCategoryWithProducts(store.id, categorySlug);
   if (!category) notFound();
+  if (category.slug !== categorySlug) {
+    redirect(categoryHref(store, category.slug));
+  }
 
   const allProducts = category.products;
   const single = (value: string | string[] | undefined) =>
@@ -102,7 +105,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
   const categoryFaq: FaqItem[] = [
     {
       question: `How fast do ${category.name.toLowerCase()} ship?`,
-      answer: `Items in this category typically arrive within ${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} business days. Each product page shows its own exact window, and you receive tracking as soon as the parcel ships.`,
+      answer: `The store-level supplier estimate is ${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} business days. Each product page shows the currently recorded estimate for that item; actual transit and tracking availability can vary.`,
     },
     {
       question: "Can I return a product if it is not right?",
@@ -111,7 +114,7 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
     {
       question: "How do you rank these products?",
       answer:
-        "Default sorting uses our internal product score: a blend of value for money, delivery speed, supplier reliability and how complete our information about the product is. No brand pays for placement.",
+        "Default sorting uses an internal product score based on recorded price, delivery, supplier and content-completeness fields. It is not a product test or endorsement.",
     },
   ];
 

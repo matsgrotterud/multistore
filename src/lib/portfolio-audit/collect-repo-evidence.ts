@@ -30,6 +30,12 @@ export function collectRepoEvidence(options: RepoEvidenceOptions = {}): AuditEvi
 
   const hasStaticDomainMap = /DOMAIN_MAP/.test(domainMap);
   const hasDatabaseDomainLookup = /prisma\.domain\.findUnique/.test(resolver);
+  const productionUsesDatabaseDomainAuthority =
+    /staticHostStore\s*=\s*isProduction\s*\?\s*null/.test(middleware) &&
+    /databaseAuthority:\s*true/.test(middleware) &&
+    /options\.databaseAuthority\s*\|\|\s*process\.env\.NODE_ENV\s*===\s*["']production["']/.test(
+      resolver
+    );
   const unknownHostFailsClosed =
     /input\.isProduction\)\s*return\s*\{\s*kind:\s*["']NOT_FOUND["']/.test(edgeRouting) &&
     /decision\.kind\s*===\s*["']NOT_FOUND["']/.test(middleware);
@@ -66,8 +72,10 @@ export function collectRepoEvidence(options: RepoEvidenceOptions = {}): AuditEvi
     unknown("runtime.local-smoke", "Browser smoke evidence is a separate, explicit attestation."),
     fact(
       "tenant.single-domain-authority",
-      !(hasStaticDomainMap && hasDatabaseDomainLookup),
-      "Static edge routing and database domain lookup must not be competing authorities."
+      !hasDatabaseDomainLookup ||
+        !hasStaticDomainMap ||
+        productionUsesDatabaseDomainAuthority,
+      "Production must use the Domain table as its single authority; static aliases are development-only."
     ),
     fact(
       "tenant.unknown-host-fails-closed",

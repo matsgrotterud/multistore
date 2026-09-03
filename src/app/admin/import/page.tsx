@@ -6,6 +6,10 @@ import {
   runDiscoveryAction,
 } from "@/lib/actions/admin-import";
 import { prisma } from "@/lib/db";
+import {
+  parseCandidateRelevanceSummary,
+  type CandidateRelevanceSummary,
+} from "@/lib/admin/generator-observability";
 import { getProviderHealthReport } from "@/lib/suppliers/catalog/provider-health";
 
 export const dynamic = "force-dynamic";
@@ -124,13 +128,14 @@ export default async function AdminImportPage() {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-[1240px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Product</th>
                 <th className="px-4 py-3">Store</th>
                 <th className="px-4 py-3">Provider</th>
                 <th className="px-4 py-3">Score</th>
+                <th className="px-4 py-3">V3 relevance</th>
                 <th className="px-4 py-3">Media</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Reason</th>
@@ -138,7 +143,9 @@ export default async function AdminImportPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {candidates.map((candidate) => (
+              {candidates.map((candidate) => {
+                const relevance = parseCandidateRelevanceSummary(candidate.signalsJson);
+                return (
                 <tr key={candidate.id}>
                   <td className="max-w-xs px-4 py-3">
                     <p className="font-medium text-slate-900">{candidate.titleEnhanced ?? candidate.titleRaw}</p>
@@ -150,6 +157,9 @@ export default async function AdminImportPage() {
                   </td>
                   <td className="px-4 py-3 text-slate-600">{candidate.providerKey}</td>
                   <td className="px-4 py-3 font-semibold">{candidate.score.toFixed(1)}</td>
+                  <td className="max-w-sm px-4 py-3 align-top">
+                    <CandidateRelevanceCell summary={relevance} />
+                  </td>
                   <td className="px-4 py-3 text-slate-600">
                     {candidate.mediaAssets.filter((asset) => asset.ingestionStatus === "STORED").length}/
                     {countMediaJson(candidate.mediaJson)}
@@ -161,11 +171,14 @@ export default async function AdminImportPage() {
                     <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
                   </td>
                   <td className="max-w-xs px-4 py-3 text-xs leading-5 text-slate-500">
-                    {candidate.rejectionReason || "Ready for review."}
+                    {candidate.rejectionReason ||
+                      (candidate.status === "ENRICHING"
+                        ? "Media verification in progress."
+                        : "Ready for review.")}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      {candidate.status !== "APPROVED" && candidate.status !== "IMPORTED" ? (
+                      {candidate.status === "ENRICHED" ? (
                         <form action={approveCandidateAction}>
                           <input type="hidden" name="candidateId" value={candidate.id} />
                           <button className="rounded-md border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700" type="submit">
@@ -185,10 +198,11 @@ export default async function AdminImportPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {candidates.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>
                     No candidates yet. Run discovery with the mock provider to test the pipeline.
                   </td>
                 </tr>
@@ -214,6 +228,73 @@ export default async function AdminImportPage() {
       </section>
     </div>
   );
+}
+
+function CandidateRelevanceCell({ summary }: { summary: CandidateRelevanceSummary | null }) {
+  if (!summary) {
+    return (
+      <div>
+        <span className={relevanceStateClass("UNKNOWN")}>UNKNOWN</span>
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          No CandidateEvaluationV1 relevance evidence recorded.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-xs leading-5 text-slate-600">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={relevanceStateClass(summary.state)}>{summary.state}</span>
+        <span className="font-mono text-[10px] text-slate-400">
+          {summary.productClass ?? "class:unknown"}
+        </span>
+      </div>
+      <p className="mt-2 text-slate-600">{summary.explanation}</p>
+      {summary.reasonCodes.length ? (
+        <ul className="mt-2 flex flex-wrap gap-1" aria-label="Relevance reason codes">
+          {summary.reasonCodes.map((code, index) => (
+            <li key={`${code}-${index}`} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">
+              {code}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-[11px] text-slate-400">No relevance failure codes.</p>
+      )}
+      {summary.evidence.length ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer font-medium text-slate-700">
+            Evidence ({summary.evidence.length})
+          </summary>
+          <ul className="mt-1 space-y-1 rounded-md bg-slate-50 p-2">
+            {summary.evidence.map((evidence, index) => (
+              <li key={`${evidence.field}-${index}`} className="break-words">
+                <span className="font-mono text-[10px] font-semibold text-slate-500">
+                  {evidence.field}
+                </span>
+                {": "}
+                {evidence.value}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        <p className="mt-1 text-[11px] text-slate-400">No matching supplier evidence.</p>
+      )}
+      {summary.evaluatorVersion ? (
+        <p className="mt-1 font-mono text-[10px] text-slate-400">{summary.evaluatorVersion}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function relevanceStateClass(state: CandidateRelevanceSummary["state"]): string {
+  const base = "rounded-full px-2 py-0.5 text-[10px] font-semibold";
+  if (state === "PASS") return `${base} bg-emerald-100 text-emerald-800`;
+  if (state === "FAIL") return `${base} bg-red-100 text-red-800`;
+  if (state === "REVIEW") return `${base} bg-amber-100 text-amber-900`;
+  return `${base} bg-slate-100 text-slate-700`;
 }
 
 function countMediaJson(raw: string): number {

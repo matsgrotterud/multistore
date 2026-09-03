@@ -1,40 +1,45 @@
 import type { Store } from "@prisma/client";
 
-/**
- * Store-wide trust strip: real shipping window, returns summary and support
- * contact. Content comes straight from the store record so it can never
- * drift from the policies pages.
- */
+/** Store-record facts only: no invented tracking, service or delivery claims. */
 export function TrustBar({ store }: { store: Store }) {
   const items = [
     {
-      title: `${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} day delivery`,
-      detail: "Realistic windows, tracked shipping",
+      label: "Delivery estimate",
+      value: `${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} days`,
+      detail: "See each item for its estimate",
     },
     {
-      title: "Clear returns",
-      detail: store.returnPolicySummary.split(".")[0],
+      label: "Returns overview",
+      value: "Policy available",
+      detail: store.returnPolicySummary.split(".")[0] || "See the returns policy",
     },
     {
-      title: "Human support",
+      label: "Support contact",
+      value: "Email support",
       detail: store.supportEmail,
     },
     {
-      title: "Transparent fulfillment",
-      detail: "We tell you exactly where orders ship from",
+      label: "Fulfillment",
+      value: "Origin disclosed",
+      detail: store.shippingOriginDisclosure,
     },
   ];
 
   return (
     <section
-      aria-label="Why shop with us"
-      className="border-y border-ink/10 bg-white"
+      aria-label="Store information"
+      className="border-y border-ink/10 bg-white/95"
     >
-      <div className="mx-auto grid max-w-site grid-cols-2 gap-4 px-4 py-5 sm:grid-cols-4 sm:px-6">
+      <div className="mx-auto grid max-w-site grid-cols-2 divide-x divide-y divide-ink/10 px-4 sm:grid-cols-4 sm:divide-y-0 sm:px-6">
         {items.map((item) => (
-          <div key={item.title} className="text-center sm:text-left">
-            <p className="text-sm font-semibold text-ink">{item.title}</p>
-            <p className="mt-0.5 truncate text-xs text-ink/60">{item.detail}</p>
+          <div key={item.label} className="min-w-0 px-4 py-5 first:pl-0 sm:px-6 sm:first:pl-0 sm:last:pr-0">
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-ink/50">
+              {item.label}
+            </p>
+            <p className="mt-1 text-sm font-bold text-ink">{item.value}</p>
+            <p className="mt-0.5 truncate text-xs text-ink/60" title={item.detail}>
+              {item.detail}
+            </p>
           </div>
         ))}
       </div>

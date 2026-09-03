@@ -1,6 +1,7 @@
 export const ORDER_STATUSES = [
   "DRAFT",
   "CONFIRMED",
+  "FULFILLMENT_ROUTING",
   "FULFILLMENT_PENDING",
   "SUPPLIER_ORDERED",
   "ERROR",
@@ -22,6 +23,7 @@ export const FULFILLMENT_STATUSES = [
   "PENDING",
   "SUPPLIER_ORDERED",
   "MANUAL",
+  "MOCK",
   "AFFILIATE",
   "ERROR",
 ] as const;
@@ -67,6 +69,7 @@ export interface PreparedCheckoutLine {
 }
 
 export interface PreparedCheckout {
+  checkoutAttemptId: string;
   storeId: string;
   storeSlug: string;
   currency: string;

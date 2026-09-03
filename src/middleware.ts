@@ -6,8 +6,13 @@ import {
 } from "@/config/domain-map";
 import {
   allowInternalStorePath,
+  resolveMiddlewareHostStore,
   selectEdgeTenant,
 } from "@/lib/tenant/edge-routing";
+import {
+  ADMIN_COOKIE_NAME,
+  isAdminSessionTokenValid,
+} from "@/lib/admin/auth-token";
 
 /**
  * Multi-tenant routing.
@@ -21,12 +26,19 @@ import {
  *   3. msdf_store cookie  local development convenience only
  *   4. NEXT_PUBLIC_DEFAULT_STORE (local development only)
  *
- * Unknown production hosts and direct /s/[slug] production paths fail closed.
+ * Unknown production hosts fail closed. Direct /s/[slug] production paths are
+ * available only to a cryptographically verified admin preview session.
  */
 
-const PASSTHROUGH_PREFIXES = ["/api", "/admin", "/_next", "/s/"];
+const PASSTHROUGH_PREFIXES = [
+  "/api",
+  "/admin",
+  "/admin-preview",
+  "/_next",
+  "/s/",
+];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   const isProduction = process.env.NODE_ENV === "production";
 
@@ -37,9 +49,19 @@ export function middleware(request: NextRequest) {
   }
 
   // Direct internal-path access: pass through but remember the store so that
-  // subsequent clean-URL navigation stays on the same tenant in dev.
+  // subsequent clean-URL navigation stays on the same tenant in dev. In
+  // production this path is an authenticated admin-preview capability only;
+  // public traffic still receives the same fail-closed 404.
   if (pathname === "/s" || pathname.startsWith("/s/")) {
-    if (!allowInternalStorePath(isProduction)) {
+    const hasVerifiedAdminSession = isAdminSessionTokenValid(
+      request.cookies.get(ADMIN_COOKIE_NAME)?.value
+    );
+    if (
+      !allowInternalStorePath({
+        isProduction,
+        hasVerifiedAdminSession,
+      })
+    ) {
       return new NextResponse("Not Found", { status: 404 });
     }
     const slug = pathname.split("/")[2];
@@ -58,7 +80,25 @@ export function middleware(request: NextRequest) {
 
   const queryStore = searchParams.get("store");
   const host = request.headers.get("host") ?? "";
-  const hostStore = resolveStoreSlugFromHost(host);
+  // The checked-in map is a development convenience only. Production uses
+  // the Domain table as the single routing authority.
+  const staticHostStore = isProduction ? null : resolveStoreSlugFromHost(host);
+  const hostStore = await resolveMiddlewareHostStore({
+    isProduction,
+    host,
+    staticStore: staticHostStore,
+    resolveProductionHost: async (hostname) => {
+      // Node.js middleware permits the existing Prisma-backed resolver. Keep
+      // it lazy so development never initializes the database from middleware.
+      const { resolveStoreSlugFromHostname } = await import(
+        "@/lib/tenant/resolve-tenant"
+      );
+      return resolveStoreSlugFromHostname(hostname, {
+        requireLive: true,
+        databaseAuthority: true,
+      });
+    },
+  });
   const cookieStore = request.cookies.get(STORE_COOKIE)?.value ?? null;
 
   const decision = selectEdgeTenant({
@@ -69,6 +109,8 @@ export function middleware(request: NextRequest) {
     defaultStore: DEFAULT_STORE_SLUG,
   });
   if (decision.kind === "NOT_FOUND") {
+    // Unknown hosts and resolver outages intentionally share the same public
+    // 404 response: neither may fall through to a default or another tenant.
     return new NextResponse("Not Found", { status: 404 });
   }
 
@@ -85,4 +127,5 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  runtime: "nodejs",
 };

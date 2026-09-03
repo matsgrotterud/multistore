@@ -15,7 +15,10 @@ export function getDeploymentProtocol(host = getDeploymentHost()): "http" | "htt
   return host.includes("localhost") ? "http" : "https";
 }
 
-/** Direct internal path — always works on any deployment host. */
+/**
+ * Direct internal path. Development permits it directly; production permits
+ * it only for a cryptographically verified admin session in middleware.
+ */
 export function getStorePreviewPath(slug: string): string {
   return `/s/${slug}`;
 }

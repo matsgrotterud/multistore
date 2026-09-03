@@ -11,10 +11,16 @@ export type StoreWithTheme = Prisma.StoreGetPayload<{
   include: { theme: true };
 }>;
 
+interface HostnameResolutionOptions {
+  requireLive?: boolean;
+  databaseAuthority?: boolean;
+}
+
 /**
- * Server-side tenant resolution. Unlike the edge middleware (which only has
- * the static domain map), this also consults the Domain table, so domains
- * added at runtime resolve correctly for sitemaps/feeds/robots.
+ * Server-side tenant resolution shared by Node.js middleware and request
+ * handlers. The static map is the fast path; the Domain table lets domains
+ * added at runtime resolve correctly for storefronts, sitemaps, feeds and
+ * robots.
  */
 
 export const getStoreBySlug = cache(
@@ -31,18 +37,28 @@ export const getStoreBySlug = cache(
 );
 
 export async function resolveStoreSlugFromHostname(
-  hostname: string
+  hostname: string,
+  options: HostnameResolutionOptions = {}
 ): Promise<string | null> {
   const host = hostname.toLowerCase().split(":")[0];
 
-  const mapped = resolveStoreSlugFromHost(host);
+  const databaseAuthority =
+    options.databaseAuthority || process.env.NODE_ENV === "production";
+  const mapped = databaseAuthority ? null : resolveStoreSlugFromHost(host);
   if (mapped) return mapped;
 
   const domain = await prisma.domain.findUnique({
     where: { hostname: host },
-    include: { store: { select: { slug: true, isActive: true } } },
+    include: {
+      store: { select: { slug: true, isActive: true, launchStatus: true } },
+    },
   });
-  if (domain?.store.isActive) return domain.store.slug;
+  if (
+    domain?.store.isActive &&
+    (!options.requireLive || domain.store.launchStatus === "LIVE")
+  ) {
+    return domain.store.slug;
+  }
 
   return null;
 }
@@ -62,7 +78,9 @@ export async function resolveStoreForRequest(options: {
     if (bySlug) return bySlug;
   }
   if (options.host) {
-    const slug = await resolveStoreSlugFromHostname(options.host);
+    const slug = await resolveStoreSlugFromHostname(options.host, {
+      databaseAuthority: process.env.NODE_ENV === "production",
+    });
     if (slug) {
       const byHost = await getStoreBySlug(slug);
       if (byHost) return byHost;

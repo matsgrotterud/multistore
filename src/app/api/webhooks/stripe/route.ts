@@ -3,6 +3,25 @@ import Stripe from "stripe";
 import { prisma } from "@/lib/db";
 import { routeOrder } from "@/lib/orders/route-order";
 import { getStripeClient } from "@/lib/payments/stripe-client";
+import {
+  PAYMENT_AUTHORIZATION_MUTABLE_ORDER_STATUSES,
+  PAYMENT_CAPTURE_MUTABLE_ORDER_STATUSES,
+  PAYMENT_FAILURE_MUTABLE_ORDER_STATUSES,
+  shouldInvokeOrderRouting,
+} from "@/lib/payments/order-payment-state";
+
+async function routeIfPaymentMatches(
+  orderId: string,
+  paymentIntentId: string
+): Promise<void> {
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, stripePaymentIntentId: paymentIntentId },
+    select: { status: true },
+  });
+  if (order && shouldInvokeOrderRouting(order.status)) {
+    await routeOrder(orderId);
+  }
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -33,12 +52,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ received: true, skipped: "no orderId metadata" });
     }
 
+    // One legal CAS transition. A duplicate is harmless; a late event cannot
+    // revive an order whose payment or fulfillment already terminated.
     await prisma.order.updateMany({
-      where: { id: orderId, paymentStatus: "UNPAID" },
-      data: { paymentStatus: "AUTHORIZED", status: "CONFIRMED" },
+      where: {
+        id: orderId,
+        stripePaymentIntentId: paymentIntent.id,
+        status: { in: [...PAYMENT_AUTHORIZATION_MUTABLE_ORDER_STATUSES] },
+        fulfillmentStatus: "NOT_STARTED",
+        paymentStatus: { in: ["UNPAID", "AUTHORIZED"] },
+      },
+      data: {
+        status: "CONFIRMED",
+        paymentStatus: "AUTHORIZED",
+      },
     });
-
-    await routeOrder(orderId);
+    await routeIfPaymentMatches(orderId, paymentIntent.id);
   }
 
   if (event.type === "payment_intent.succeeded") {
@@ -51,20 +80,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await prisma.order.updateMany({
       where: {
         id: orderId,
-        status: { notIn: ["SUPPLIER_ORDERED", "FULFILLMENT_PENDING", "ERROR", "CANCELLED"] },
+        stripePaymentIntentId: paymentIntent.id,
+        status: { in: [...PAYMENT_CAPTURE_MUTABLE_ORDER_STATUSES] },
+        paymentStatus: { in: ["AUTHORIZED", "CAPTURED"] },
       },
-      data: { paymentStatus: "CAPTURED", status: "CONFIRMED" },
+      data: { paymentStatus: "CAPTURED" },
     });
-
-    await routeOrder(orderId);
+    await routeIfPaymentMatches(orderId, paymentIntent.id);
   }
 
   if (event.type === "payment_intent.payment_failed") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const orderId = paymentIntent.metadata.orderId;
     if (orderId) {
-      await prisma.order.update({
-        where: { id: orderId },
+      await prisma.order.updateMany({
+        where: {
+          id: orderId,
+          stripePaymentIntentId: paymentIntent.id,
+          status: { in: [...PAYMENT_FAILURE_MUTABLE_ORDER_STATUSES] },
+          fulfillmentStatus: "NOT_STARTED",
+          paymentStatus: { not: "CAPTURED" },
+        },
         data: {
           status: "ERROR",
           paymentStatus: "FAILED",
@@ -79,8 +115,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const orderId = paymentIntent.metadata.orderId;
     if (orderId) {
-      await prisma.order.update({
-        where: { id: orderId },
+      await prisma.order.updateMany({
+        where: {
+          id: orderId,
+          stripePaymentIntentId: paymentIntent.id,
+          status: { in: [...PAYMENT_FAILURE_MUTABLE_ORDER_STATUSES] },
+          fulfillmentStatus: "NOT_STARTED",
+          paymentStatus: { not: "CAPTURED" },
+        },
         data: {
           status: "CANCELLED",
           paymentStatus: "CANCELLED",

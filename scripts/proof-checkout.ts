@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { placeOrder } from "@/lib/actions/checkout";
+import { randomUUID } from "node:crypto";
 
 /**
  * One-off Phase 1 proof: runs the real mock checkout pipeline (prepareCheckout →
@@ -29,6 +30,7 @@ async function main() {
 
   const result = await placeOrder({
     storeSlug: store.slug,
+    checkoutAttemptId: randomUUID(),
     name: "Phase One Tester",
     email: "phase1@example.com",
     addressLine1: "Storgata 1",

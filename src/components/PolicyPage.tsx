@@ -47,18 +47,17 @@ export async function PolicyPage({
     case "shipping":
       body = [
         store.shippingOriginDisclosure,
-        `Typical delivery time is ${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} business days after order confirmation. Each product page shows the exact estimate for that item. You receive a tracking link by email as soon as the carrier scans your parcel.`,
-        `Orders are fulfilled by third-party supplier partners; ${store.name} remains your contract partner and your single point of contact for any issue with delivery.`,
-        `Depending on your country, import taxes or customs duties may apply on delivery and are not included in our prices unless explicitly stated at checkout.`,
-        `If a parcel is significantly delayed beyond the stated window, contact ${store.supportEmail} and we will investigate with the carrier, and re-ship or refund where appropriate.`,
+        `The currently recorded supplier estimate is ${store.defaultShippingDaysMin}–${store.defaultShippingDaysMax} business days. Each product page shows the estimate available for that item; it is not a delivery guarantee.`,
+        `Orders may be fulfilled by third-party supplier partners. Contact ${store.supportEmail} if you need help with an order.`,
+        `Depending on your country and the checkout terms, import taxes or customs duties may apply. Review the amount and disclosures shown before payment.`,
+        `Tracking information is provided only when it is made available by the fulfillment partner or carrier.`,
       ].join("\n\n");
       break;
     case "returns":
       body = [
         store.returnPolicySummary,
-        `To start a return, email ${store.supportEmail} with your order reference. We reply with the return address and instructions within one business day. Because fulfillment is via supplier partners, the return address may be different from our business address — never return a parcel without instructions.`,
-        `Refunds are issued to the original payment method within 14 days of the returned item passing inspection. Items must be unused and in original packaging unless the return is due to a defect or our error.`,
-        `Products marked "final sale" on their product page are not returnable; this is always disclosed before purchase.`,
+        `To request a return, email ${store.supportEmail} with your order reference and wait for the return address and instructions. A supplier return address may differ from the business address.`,
+        `Eligibility, condition requirements, timing and refund handling follow the return summary and terms published for this store. Contact support before sending anything back.`,
       ].join("\n\n");
       break;
     case "privacy":

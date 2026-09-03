@@ -29,8 +29,15 @@ const EMPTY_FORM: FormState = {
 
 interface PaymentSession {
   clientSecret: string;
+  finalizationToken: string;
   orderId: string;
   orderNumber: string;
+  grandTotal: number;
+  currency: string;
+}
+
+function newCheckoutAttemptId(): string {
+  return globalThis.crypto.randomUUID();
 }
 
 function StripePaymentStep({
@@ -40,6 +47,7 @@ function StripePaymentStep({
   locale,
   grandTotal,
   currency,
+  finalizationToken,
   onSuccess,
   onError,
 }: {
@@ -49,6 +57,7 @@ function StripePaymentStep({
   locale: string;
   grandTotal: number;
   currency: string;
+  finalizationToken: string;
   onSuccess: (result: CheckoutResult) => void;
   onError: (message: string) => void;
 }) {
@@ -79,7 +88,7 @@ function StripePaymentStep({
     const response = await fetch("/api/checkout/create-payment-intent", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId }),
+      body: JSON.stringify({ orderId, finalizationToken }),
     });
 
     const payload = (await response.json()) as {
@@ -134,6 +143,7 @@ export function CheckoutForm({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [result, setResult] = useState<CheckoutResult | null>(null);
   const [paymentSession, setPaymentSession] = useState<PaymentSession | null>(null);
+  const [checkoutAttemptId, setCheckoutAttemptId] = useState(newCheckoutAttemptId);
   const [isPending, startTransition] = useTransition();
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
 
@@ -163,6 +173,7 @@ export function CheckoutForm({
     startTransition(async () => {
       const response = await placeOrder({
         storeSlug,
+        checkoutAttemptId,
         ...form,
         items: cart.items.map((item) => ({
           productId: item.productId,
@@ -194,6 +205,7 @@ export function CheckoutForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           storeSlug,
+          checkoutAttemptId,
           ...form,
           items: cart.items.map((item) => ({
             productId: item.productId,
@@ -207,6 +219,9 @@ export function CheckoutForm({
         clientSecret?: string;
         orderId?: string;
         orderNumber?: string;
+        grandTotal?: number;
+        currency?: string;
+        finalizationToken?: string;
         error?: string;
         fieldErrors?: Record<string, string>;
       };
@@ -220,15 +235,25 @@ export function CheckoutForm({
         return;
       }
 
-      if (!payload.clientSecret || !payload.orderId || !payload.orderNumber) {
+      if (
+        !payload.clientSecret ||
+        !payload.orderId ||
+        !payload.orderNumber ||
+        typeof payload.grandTotal !== "number" ||
+        !payload.currency ||
+        !payload.finalizationToken
+      ) {
         setResult({ ok: false, message: "Invalid payment session from server." });
         return;
       }
 
       setPaymentSession({
         clientSecret: payload.clientSecret,
+        finalizationToken: payload.finalizationToken,
         orderId: payload.orderId,
         orderNumber: payload.orderNumber,
+        grandTotal: payload.grandTotal,
+        currency: payload.currency,
       });
     } catch {
       setResult({ ok: false, message: "Network error while starting payment." });
@@ -400,8 +425,9 @@ export function CheckoutForm({
                 orderNumber={paymentSession.orderNumber}
                 storeSlug={storeSlug}
                 locale={locale}
-                grandTotal={grandTotal}
-                currency={cart.currency}
+                grandTotal={paymentSession.grandTotal}
+                currency={paymentSession.currency}
+                finalizationToken={paymentSession.finalizationToken}
                 onSuccess={setResult}
                 onError={(message) => setResult({ ok: false, message })}
               />
@@ -413,7 +439,10 @@ export function CheckoutForm({
           <button
             type="button"
             className="text-sm text-ink/60 underline"
-            onClick={() => setPaymentSession(null)}
+            onClick={() => {
+              setPaymentSession(null);
+              setCheckoutAttemptId(newCheckoutAttemptId());
+            }}
           >
             Edit delivery details
           </button>

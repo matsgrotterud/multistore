@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { enqueueCatalogJob } from "@/lib/jobs/queue";
+import {
+  buildCatalogSchedulePlan,
+  catalogCadenceBucket,
+  catalogStoreProviderKey,
+  DEFAULT_CATALOG_DISCOVERY_CADENCE_HOURS,
+  DEFAULT_CATALOG_REFRESH_CADENCE_HOURS,
+} from "@/lib/jobs/catalog-schedule";
+import { enqueueCatalogJobsOnce } from "@/lib/jobs/queue";
 import { runQueuedCatalogJobs } from "@/lib/jobs/runner";
-import { syncProviderRegistryToDb } from "@/lib/suppliers/providers/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -14,45 +20,83 @@ export async function GET(request: Request) {
     }
   }
 
-  await syncProviderRegistryToDb();
+  const now = new Date();
+  const allowMockAutomation = process.env.CATALOG_ALLOW_MOCK_AUTOMATION === "true";
+  const refreshCadenceHours = boundedEnvInteger(
+    "CATALOG_REFRESH_CADENCE_HOURS",
+    DEFAULT_CATALOG_REFRESH_CADENCE_HOURS,
+    1,
+    7 * 24
+  );
+  const discoveryCadenceHours = boundedEnvInteger(
+    "CATALOG_DISCOVERY_CADENCE_HOURS",
+    DEFAULT_CATALOG_DISCOVERY_CADENCE_HOURS,
+    24,
+    31 * 24
+  );
+  const refreshLimit = boundedEnvInteger("CATALOG_REFRESH_LIMIT", 6, 1, 20);
+  const refreshBucket = catalogCadenceBucket(now, refreshCadenceHours);
+  const discoveryBucket = catalogCadenceBucket(now, discoveryCadenceHours);
+
+  // Enqueue every configured store. The deterministic job IDs make this safe
+  // to call repeatedly while FIFO processing prevents the newest stores from
+  // permanently starving older ones.
   const stores = await prisma.store.findMany({
     where: { isActive: true },
-    orderBy: { updatedAt: "desc" },
-    take: 10,
-    include: { settings: true, categories: { orderBy: { sortOrder: "asc" }, take: 1 } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 500,
+    include: {
+      supplierSettings: {
+        where: { isEnabled: true },
+        orderBy: [{ priority: "desc" }, { providerKey: "asc" }],
+      },
+      categories: { orderBy: { sortOrder: "asc" }, take: 1 },
+    },
   });
-
-  let enqueued = 0;
-  for (const store of stores) {
-    const settings = await prisma.storeSupplierSettings.findMany({
-      where: { storeId: store.id, isEnabled: true },
-      orderBy: [{ priority: "desc" }],
-      take: 3,
-    });
-    const providerSettings =
-      settings.length > 0
-        ? settings
-        : [
-            {
-              providerKey: "mock",
-              importQueries: JSON.stringify([store.niche]),
-              storeId: store.id,
-            },
-          ];
-
-    for (const setting of providerSettings) {
-      const queries = parseQueries(setting.importQueries);
-      for (const query of queries.slice(0, 2)) {
-        await enqueueCatalogJob({
-          storeId: store.id,
-          providerKey: setting.providerKey,
-          jobType: "DISCOVER",
-          payload: { query, categoryId: store.categories[0]?.id },
-        });
-        enqueued += 1;
-      }
-    }
-  }
+  const productBindings = await prisma.product.findMany({
+    where: {
+      storeId: { in: stores.map((store) => store.id) },
+      providerKey: { not: null },
+      externalId: { not: null },
+    },
+    select: { storeId: true, providerKey: true },
+    distinct: ["storeId", "providerKey"],
+  });
+  const boundStoreProviders = new Set(
+    productBindings
+      .filter(
+        (binding): binding is { storeId: string; providerKey: string } =>
+          typeof binding.providerKey === "string"
+      )
+      .map((binding) =>
+        catalogStoreProviderKey(binding.storeId, binding.providerKey)
+      )
+  );
+  const plan = buildCatalogSchedulePlan({
+    stores,
+    boundStoreProviders,
+    allowMockAutomation,
+    refreshBucket,
+    discoveryBucket,
+    refreshLimit,
+    refreshCadenceHours,
+    now,
+  });
+  const [refreshEnqueue, discoveryEnqueue] = await Promise.all([
+    enqueueCatalogJobsOnce(plan.refreshJobs),
+    enqueueCatalogJobsOnce(plan.discoveryJobs),
+  ]);
+  const scheduling = {
+    storesConsidered: stores.length,
+    storesWithoutProvider: plan.storesWithoutProvider,
+    providersSkipped: plan.providersSkipped,
+    refreshPlanned: plan.refreshJobs.length,
+    discoveryPlanned: plan.discoveryJobs.length,
+    refreshJobs: refreshEnqueue.enqueued,
+    discoveryJobs: discoveryEnqueue.enqueued,
+    deduplicated:
+      refreshEnqueue.deduplicated + discoveryEnqueue.deduplicated,
+  };
 
   const summary = await runQueuedCatalogJobs({
     batchSize: Number(process.env.CATALOG_SYNC_BATCH_SIZE ?? 20),
@@ -60,15 +104,26 @@ export async function GET(request: Request) {
     workerId: "cron-catalog-sync",
   });
 
-  return NextResponse.json({ ok: true, enqueued, summary });
+  const completelyFailed = summary.failed > 0 && summary.succeeded === 0;
+  return NextResponse.json(
+    {
+      ok: !completelyFailed,
+      enqueued: scheduling.refreshJobs + scheduling.discoveryJobs,
+      scheduling,
+      summary,
+    },
+    { status: completelyFailed ? 503 : 200 }
+  );
 }
 
-function parseQueries(raw: string): string[] {
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
-  } catch {
-    return [];
-  }
+function boundedEnvInteger(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number(process.env[key]);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max
+    ? parsed
+    : fallback;
 }
-

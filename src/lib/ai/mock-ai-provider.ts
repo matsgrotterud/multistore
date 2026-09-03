@@ -84,7 +84,7 @@ export class MockAiProvider implements AiProvider {
     return {
       storeSlug: slugify(input.niche),
       brandName,
-      tagline: `${nicheTitle} chosen for ${input.audience}, explained honestly.`,
+      tagline: `A focused ${nicheTitle} catalog for ${input.audience}, with supplier-backed product details.`,
       categories,
       homepageSections: [
         "Hero with niche value proposition",
@@ -99,7 +99,7 @@ export class MockAiProvider implements AiProvider {
         "Shipping & returns disclosure",
       ],
       seoTitle: `${brandName} — ${nicheTitle} for ${input.audience}`,
-      seoDescription: `Compare ${input.niche} on specs, shipping time and price. Honest pros and cons, transparent supplier shipping, ${input.country} support.`,
+      seoDescription: `Browse ${input.niche} with supplier-provided specifications, price and delivery estimates for ${input.country}.`,
       guideIdeas: [
         `How to choose ${input.niche}: a practical buyer's guide`,
         `${nicheTitle} under $100: what you actually get`,
@@ -127,13 +127,12 @@ export class MockAiProvider implements AiProvider {
       productImportQueries,
       themeColors: PALETTES[seed % PALETTES.length],
       trustCopy: [
-        `Every product at ${brandName} is reviewed against our quality checklist before it appears in the catalog.`,
-        `We compare specs, realistic shipping windows, return terms and margin sustainability — not hype.`,
-        `Orders ship from vetted partner suppliers; delivery estimates on each product page reflect typical transit, not marketing promises.`,
-        `Support replies within one business day at the email on our policies pages.`,
-        `We do not publish star ratings until verified customer reviews exist.`,
+        `Product records at ${brandName} are built from supplier catalog data and remain in noindex preview until the catalog gates pass.`,
+        `Specifications, prices and delivery windows identify their supplier source where available.`,
+        `Supplier estimates can change and must be checked again before a commercial launch.`,
+        `Customer feedback is displayed only after it has been collected by this store from a completed order.`,
       ].join(" "),
-      shippingDisclosure: `Orders are fulfilled by partner suppliers and typically arrive within a realistic window for ${input.country}. Fulfillment is remote — we publish honest delivery estimates instead of implying same-day dispatch from a warehouse we do not operate.`,
+      shippingDisclosure: `Orders are fulfilled by partner suppliers. Product pages show the currently available supplier delivery estimate for ${input.country}; actual transit can vary and must be confirmed before launch.`,
       monetizationIdeas: [
         "Bundle complementary accessories at a small discount",
         "Subscription for consumable refills where applicable",
@@ -177,7 +176,7 @@ export class MockAiProvider implements AiProvider {
     return {
       title: `${titleCase(input.topic)}: A Practical Guide for ${titleCase(input.audience)}`,
       slug: slugify(input.topic),
-      directAnswer: `The short answer: match the ${input.niche} to your actual use case and budget first, then compare the two or three models that fit. This guide shows exactly how.`,
+      directAnswer: `Start by matching the ${input.niche} product class to your use case, then compare only the supplier facts available for relevant catalog items.`,
       sections: [
         { heading: "The short answer", points: ["Direct recommendation up front", "Who should buy what"] },
         { heading: "What actually matters", points: ["3-5 decision criteria", "Specs that are marketing noise"] },
@@ -203,38 +202,36 @@ export class MockAiProvider implements AiProvider {
 
     return {
       title: input.productTitle,
-      subtitle: `Built for ${input.audience}`,
-      shortDescription: `${input.productTitle} for ${input.audience}. Key specs — ${specLine || "see full table below"}. Ships in ${input.shippingDaysMin}-${input.shippingDaysMax} business days from our partner supplier.`,
+      subtitle: `Supplier catalog option for ${input.audience}`,
+      shortDescription: `${input.productTitle}. Supplier-provided details — ${specLine || "see the available facts below"}. Current delivery estimate: ${input.shippingDaysMin}-${input.shippingDaysMax} business days.`,
       description: [
-        `${input.productTitle} is selected for ${input.audience} in the ${input.niche} niche. We list it because the spec-to-price ratio holds up against alternatives we compared, not because of hype.`,
-        specLine ? `Key specifications: ${specLine}.` : "",
-        `Like everything in this store, it ships from a partner supplier with a realistic ${input.shippingDaysMin}-${input.shippingDaysMax} business day delivery window — we publish the real estimate instead of promising next-day delivery we cannot guarantee.`,
-        `If it is not right for you, the standard return policy applies; the process is described on the returns page.`,
+        `${input.productTitle} is a supplier catalog item associated with the ${input.niche} catalog. Product class relevance and supplier evidence must pass review before commercial launch.`,
+        specLine ? `Available supplier specifications: ${specLine}.` : "No detailed supplier specifications are currently available.",
+        `The current supplier delivery estimate is ${input.shippingDaysMin}-${input.shippingDaysMax} business days. This is an estimate, not a delivery guarantee.`,
       ]
         .filter(Boolean)
         .join("\n\n"),
       pros: [
-        "Strong spec-to-price ratio in its class",
-        "Clear, published shipping window",
-        "Covered by the standard return policy",
+        "Available supplier specifications are shown on the page",
+        "Current supplier delivery estimate is displayed",
       ],
       cons: [
-        `Ships from a partner supplier (${input.shippingDaysMin}-${input.shippingDaysMax} business days), not locally`,
-        "Not the premium option if budget is unlimited",
+        "Supplier-provided details require merchant review before launch",
+        `The ${input.shippingDaysMin}-${input.shippingDaysMax} business day estimate can change`,
       ],
       useCases: ["everyday", input.audience.toLowerCase().split(" ")[0] || "general"],
       faq: [
         {
           question: "How long does delivery take?",
-          answer: `Typically ${input.shippingDaysMin}-${input.shippingDaysMax} business days. The order confirmation includes tracking as soon as the supplier hands the parcel to the carrier.`,
+          answer: `The currently available supplier estimate is ${input.shippingDaysMin}-${input.shippingDaysMax} business days. Actual transit and tracking availability can vary.`,
         },
         {
           question: "Can I return it?",
-          answer: "Yes — the standard return policy applies. See the returns page for the exact window and process.",
+          answer: "Return eligibility depends on the published store policy and the item condition. Review the returns page before ordering.",
         },
       ],
-      seoTitle: `${input.productTitle} — Specs, Price & Honest Review-Free Assessment`,
-      seoDescription: `${input.productTitle} for ${input.audience}: real specs, transparent ${input.shippingDaysMin}-${input.shippingDaysMax} day shipping, honest pros and cons.`,
+      seoTitle: `${input.productTitle} — Supplier Specifications and Delivery Estimate`,
+      seoDescription: `${input.productTitle}: available supplier specifications and the current ${input.shippingDaysMin}-${input.shippingDaysMax} business day delivery estimate.`,
     };
   }
 }

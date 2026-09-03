@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
-import { fetchMedia } from "@/lib/media/fetch-media";
+import {
+  fetchMedia,
+  mediaTypeForContentType,
+  requireFetchedMediaTypeMatch,
+} from "@/lib/media/fetch-media";
 import { syncProductGallery } from "@/lib/media/sync-product-gallery";
 import { getStorageProvider } from "@/lib/storage/storage-provider";
 import {
@@ -50,6 +54,8 @@ export async function ingestProductMedia(
       });
       const existingForTargetIsUsable =
         existingForTarget?.ingestionStatus === "STORED" &&
+        existingForTarget.mediaType === item.mediaType &&
+        mediaTypeForContentType(existingForTarget.contentType) === item.mediaType &&
         isStoredMediaUrlUsable(existingForTarget.storageUrl, storage.name);
       if (existingForTargetIsUsable) {
         result.skipped += 1;
@@ -57,6 +63,10 @@ export async function ingestProductMedia(
       }
 
       const fetched = await fetchMedia(item.url);
+      const verifiedMediaType = requireFetchedMediaTypeMatch(
+        item.mediaType,
+        fetched.mediaType
+      );
       const existingByHash = await prisma.productMediaAsset.findFirst({
         where: {
           contentHash: fetched.contentHash,
@@ -93,7 +103,7 @@ export async function ingestProductMedia(
           candidateId: input.candidateId,
           providerKey: input.providerKey,
           externalId: input.externalId,
-          mediaType: item.mediaType ?? fetched.mediaType,
+          mediaType: verifiedMediaType,
           sourceUrl: item.url,
           storageUrl,
           storageKey,

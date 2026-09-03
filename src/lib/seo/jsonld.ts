@@ -1,5 +1,9 @@
 import type { ContentPage, Product, Store } from "@prisma/client";
-import { absoluteUrl, canonicalUrl } from "@/lib/seo/canonical";
+import {
+  absoluteUrl,
+  canonicalUrl,
+  type StoreForCanonical,
+} from "@/lib/seo/canonical";
 import { parseFaq } from "@/lib/utils/json";
 import type { FaqItem, StockStatus } from "@/lib/types";
 
@@ -21,6 +25,7 @@ const AVAILABILITY: Record<StockStatus, string> = {
   LOW_STOCK: "https://schema.org/LimitedAvailability",
   OUT_OF_STOCK: "https://schema.org/OutOfStock",
   PREORDER: "https://schema.org/PreOrder",
+  UNKNOWN: "https://schema.org/OutOfStock",
 };
 
 export function organizationJsonLd(store: Store): JsonLd {
@@ -52,14 +57,27 @@ export function webSiteJsonLd(store: Store): JsonLd {
 }
 
 export function productJsonLd(
-  store: Store,
-  product: Product,
+  store: StoreForCanonical & Pick<Store, "legalName">,
+  product: Pick<
+    Product,
+    | "stockStatus"
+    | "imageUrl"
+    | "title"
+    | "shortDescription"
+    | "brand"
+    | "gtin"
+    | "price"
+    | "currency"
+    | "slug"
+    | "ratingAverage"
+    | "ratingCount"
+  >,
   galleryUrls?: string[],
   categorySlug?: string | null
 ): JsonLd {
   const availability =
     AVAILABILITY[product.stockStatus as StockStatus] ??
-    "https://schema.org/InStock";
+    "https://schema.org/OutOfStock";
 
   const imageList = (galleryUrls?.length ? galleryUrls : [product.imageUrl]).map((url) =>
     absoluteUrl(store, url)
@@ -71,7 +89,6 @@ export function productJsonLd(
     name: product.title,
     description: product.shortDescription,
     image: imageList.length === 1 ? imageList[0] : imageList,
-    sku: product.sku,
     brand: { "@type": "Brand", name: product.brand },
     ...(product.gtin ? { gtin: product.gtin } : {}),
     offers: {
@@ -105,6 +122,12 @@ export interface BreadcrumbItem {
   path: string;
 }
 
+interface ItemListProduct {
+  slug: string;
+  title: string;
+  category?: { slug: string } | null;
+}
+
 export function breadcrumbJsonLd(
   store: Store,
   items: BreadcrumbItem[]
@@ -124,7 +147,7 @@ export function breadcrumbJsonLd(
 export function itemListJsonLd(
   store: Store,
   name: string,
-  products: Array<Product & { category?: { slug: string } | null }>
+  products: ItemListProduct[]
 ): JsonLd {
   return {
     "@context": "https://schema.org",

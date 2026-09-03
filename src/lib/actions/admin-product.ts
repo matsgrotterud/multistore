@@ -18,6 +18,7 @@ import {
   getPipePairs,
   getString,
 } from "@/lib/actions/form";
+import { evaluateAdminProductEditEvidence } from "@/lib/actions/admin-product-evidence";
 import type { AdminActionState } from "@/lib/actions/admin-store";
 
 const productUpdateSchema = z.object({
@@ -105,10 +106,38 @@ export async function updateProductAction(
     return { ok: false, error: "Shipping days max must be ≥ shipping days min." };
   }
 
-  const existing = await prisma.product.findUnique({ where: { id: productId } });
+  // Structured content fields are part of the publication evidence and must be
+  // evaluated as proposed, not read from the stale database row.
+  const pros = getLines(formData, "pros");
+  const cons = getLines(formData, "cons");
+  const useCases = getLines(formData, "useCases");
+  const specs = getPipePairs(formData, "specs");
+  const faq = getFaqPairs(formData, "faq");
+
+  const existing = await prisma.product.findUnique({
+    where: { id: productId },
+    include: {
+      mediaAssets: {
+        where: {
+          mediaType: "IMAGE",
+          ingestionStatus: "STORED",
+          storageUrl: { not: null },
+        },
+        select: { id: true },
+      },
+      variants: {
+        select: { externalVariantId: true, sku: true },
+      },
+    },
+  });
   if (!existing) {
     return { ok: false, error: "Product not found." };
   }
+  const store = await prisma.store.findUnique({
+    where: { id: existing.storeId },
+    select: { niche: true, launchStatus: true },
+  });
+  if (!store) return { ok: false, error: "Store not found." };
 
   // Ensure the supplied category belongs to the same store (no cross-tenant leak).
   const category = await prisma.category.findFirst({
@@ -118,19 +147,62 @@ export async function updateProductAction(
     return { ok: false, error: "Selected category does not belong to this store." };
   }
 
-  // Structured content fields (line / pipe editors).
-  const pros = getLines(formData, "pros");
-  const cons = getLines(formData, "cons");
-  const useCases = getLines(formData, "useCases");
-  const specs = getPipePairs(formData, "specs");
-  const faq = getFaqPairs(formData, "faq");
-
   // Recompute margin + score with the same libraries the seed uses.
   const margin = calculateGrossMargin({
     price: data.price,
     cost: data.cost,
     shippingCost: data.shippingCost,
   });
+
+  // supplierProductId is a legacy editable display field. Changing it does
+  // not prove a new provider identity, so publication remains fail-closed
+  // until the provider-backed externalId is re-synchronized.
+  const externalIdForEvidence =
+    data.supplierProductId === existing.supplierProductId
+      ? existing.externalId
+      : null;
+  const editEvidence = evaluateAdminProductEditEvidence({
+    store,
+    supplierDataJson: existing.supplierDataJson,
+    requestedPublished: data.isPublished,
+    candidate: {
+      title: data.title,
+      description: data.description,
+      specs,
+      visibleContentText: [
+        data.title,
+        data.subtitle,
+        data.shortDescription,
+        data.description,
+        ...pros,
+        ...cons,
+        ...useCases,
+        ...specs.flatMap((spec) => [spec.label, spec.value]),
+        ...faq.flatMap((item) => [item.question, item.answer]),
+        data.seoTitle,
+        data.seoDescription,
+      ].join("\n"),
+      providerKey: existing.providerKey,
+      externalId: externalIdForEvidence,
+      sourceUrl: existing.sourceUrl,
+      usableStoredMediaCount: existing.mediaAssets.length,
+      variantIdentityReady:
+        existing.variants.length === 0 ||
+        existing.variants.every((variant) =>
+          Boolean(variant.externalVariantId || variant.sku)
+        ),
+      price: data.price,
+      marginPercent: margin.grossMarginPercent,
+      shippingDaysMax: data.shippingDaysMax,
+      riskVeto: existing.qualityStatus === "BLOCKED",
+    },
+  });
+  if (!editEvidence.saveAllowed) {
+    return {
+      ok: false,
+      error: `Publication blocked by fresh post-edit V3 evidence: ${editEvidence.publicationReasonCodes.join(", ")}.`,
+    };
+  }
 
   const supplier = await prisma.supplier.findUnique({
     where: { name: data.supplierName },
@@ -167,6 +239,7 @@ export async function updateProductAction(
       specs: toJson(specs),
       useCases: toJson(useCases),
       faq: toJson(faq),
+      supplierDataJson: toJson(editEvidence.nextSupplierData),
     },
   });
 

@@ -14,6 +14,7 @@ import {
 } from "@/lib/stores/queries";
 import { storefrontHref } from "@/lib/stores/storefront-links";
 import { parseStringArray } from "@/lib/utils/json";
+import { contentPageRequiresNoindex } from "@/lib/content/storefront-content-policy";
 
 interface ComparePageProps {
   params: Promise<{ store: string }>;
@@ -32,6 +33,7 @@ export async function generateMetadata({
       comparison?.seoDescription ??
       `Our current top ${store.niche} picks side by side: price, delivery time and the specs that actually differ.`,
     path: "/compare",
+    noindex: contentPageRequiresNoindex(comparison),
   });
 }
 

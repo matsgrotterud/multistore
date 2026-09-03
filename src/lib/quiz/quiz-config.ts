@@ -194,16 +194,34 @@ export function getQuizQuestions(
   if (config) return config;
 
   // Generic fallback for stores generated after launch.
+  const seenCategoryNames = new Set<string>();
+  const uniqueCategoryNames = categoryNames
+    .map((name) => name.trim())
+    .filter((name) => {
+      if (!name) return false;
+      const normalized = name.toLowerCase();
+      if (seenCategoryNames.has(normalized)) return false;
+      seenCategoryNames.add(normalized);
+      return true;
+    })
+    .slice(0, 4);
+  const categoryQuestion: QuizQuestion[] =
+    uniqueCategoryNames.length > 0
+      ? [
+          {
+            id: "category",
+            label: "What are you shopping for?",
+            options: uniqueCategoryNames.map((name) => ({
+              value: name.toLowerCase().replace(/\s+/g, "-"),
+              label: name,
+              tags: [name.toLowerCase()],
+            })),
+          },
+        ]
+      : [];
+
   return [
-    {
-      id: "category",
-      label: "What are you shopping for?",
-      options: categoryNames.slice(0, 4).map((name) => ({
-        value: name.toLowerCase().replace(/\s+/g, "-"),
-        label: name,
-        tags: [name.toLowerCase()],
-      })),
-    },
+    ...categoryQuestion,
     {
       id: "budget",
       label: "What is your budget?",
@@ -227,7 +245,7 @@ export interface ScoredRecommendation<T> {
 }
 
 export function recommendProducts<
-  T extends { price: number; useCases: string[]; productScore: number },
+  T extends { price: number; useCases: string[] },
 >(
   questions: QuizQuestion[],
   answers: QuizAnswerMap,
@@ -249,14 +267,23 @@ export function recommendProducts<
 
   return products
     .filter((product) => priceMax === undefined || product.price <= priceMax)
-    .map((product) => {
+    .map((product, originalIndex) => {
       const matchedTags = selectedTags.filter((tag) => product.useCases.includes(tag));
       return {
         product,
         matchedTags,
-        matchScore: matchedTags.length * 3 + product.productScore / 20,
+        matchScore: matchedTags.length * 3,
+        originalIndex,
       };
     })
-    .sort((a, b) => b.matchScore - a.matchScore)
-    .slice(0, limit);
+    .sort(
+      (a, b) =>
+        b.matchScore - a.matchScore || a.originalIndex - b.originalIndex
+    )
+    .slice(0, limit)
+    .map(({ product, matchScore, matchedTags }) => ({
+      product,
+      matchScore,
+      matchedTags,
+    }));
 }

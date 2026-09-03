@@ -32,6 +32,9 @@ export function isProductCheckoutAvailable(
       return (
         environment.CJ_ENABLED === "true" &&
         environment.CJ_ORDER_API_ENABLED === "true" &&
+        // payType=3 produces a PENDING supplier order, but v1 has no verified
+        // provider reconciliation contract. Keep it out of live checkout.
+        environment.CJ_ORDER_PAY_TYPE === "2" &&
         Boolean(environment.CJ_API_KEY || environment.CJ_ACCESS_TOKEN) &&
         Boolean(environment.CJ_LOGISTIC_NAME) &&
         Boolean(environment.CJ_FROM_COUNTRY_CODE)

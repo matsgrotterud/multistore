@@ -51,7 +51,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
     {
       question: "How are the recommendations in this guide chosen?",
       answer:
-        "They come from our own catalog, ranked by an internal score that weighs value for money, delivery speed and how complete our data on the product is. No brand pays for placement in our guides.",
+        "They come from products currently visible in this catalog and are ordered using recorded price, delivery and data-completeness fields. This is not evidence that we tested the products.",
     },
     {
       question: "How long does delivery take?",

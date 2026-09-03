@@ -8,8 +8,9 @@ import { StructuredData } from "@/components/StructuredData";
 import { CartProvider } from "@/lib/cart/cart-context";
 import { organizationJsonLd, webSiteJsonLd } from "@/lib/seo/jsonld";
 import { buildStoreMetadata } from "@/lib/seo/metadata";
-import { getCategories, requireStore } from "@/lib/stores/queries";
+import { getCategories, getStoreSettings, requireStore } from "@/lib/stores/queries";
 import { storefrontBase } from "@/lib/stores/storefront-links";
+import { resolveStorefrontPresentation } from "@/lib/storefront/presentation";
 import { buildThemeStyle } from "@/lib/theme";
 
 interface StoreLayoutProps {
@@ -30,12 +31,22 @@ export async function generateMetadata({
 export default async function StoreLayout({ children, params }: StoreLayoutProps) {
   const { store: slug } = await params;
   const store = await requireStore(slug);
-  const categories = await getCategories(store.id);
+  const [categories, settings] = await Promise.all([
+    getCategories(store.id),
+    getStoreSettings(store.id),
+  ]);
+  const presentation = resolveStorefrontPresentation(
+    settings.presentation,
+    settings.homepage
+  );
 
   return (
     <div
       style={buildThemeStyle(store.theme)}
-      className="flex min-h-screen flex-col bg-surface font-body text-ink"
+      data-storefront-archetype={presentation.archetype}
+      data-storefront-density={presentation.density}
+      data-storefront-hero={presentation.hero}
+      className="storefront-shell flex min-h-screen flex-col bg-surface font-body text-ink"
     >
       <StructuredData data={[organizationJsonLd(store), webSiteJsonLd(store)]} />
       <CartProvider

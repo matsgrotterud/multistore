@@ -4,6 +4,7 @@ import {
   storeBlueprintInputSchema,
 } from "@/lib/ai/store-blueprint";
 import { createStoreFromBlueprint } from "@/lib/stores/create-from-blueprint";
+import { beginGenerationRun, isTerminalGenerationStatus } from "@/lib/generator/generation-run";
 
 /**
  * Headless generator: runs the EXACT same blueprint + import pipeline the admin
@@ -55,12 +56,22 @@ async function main() {
     await prisma.$disconnect();
     process.exit(1);
   }
+  const generationRun = await beginGenerationRun({
+    idempotencyKey: arg("idempotencyKey"),
+    originalInput: rawInput,
+  });
+  if (generationRun.isExisting && isTerminalGenerationStatus(generationRun.status)) {
+    console.log(JSON.stringify(generationRun.summary.result ?? generationRun.summary, null, 2));
+    await prisma.$disconnect();
+    return;
+  }
 
   const result = await createStoreFromBlueprint({
     blueprint,
     input,
     importProducts: true,
     autoPublishScored: true,
+    generationRunId: generationRun.runId,
   });
 
   console.log(`\nDONE in ${((Date.now() - started) / 1000).toFixed(1)}s`);

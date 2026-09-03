@@ -65,7 +65,6 @@ export function ProductPurchaseActions({
           track(storeSlug, "affiliate_click", {
             productId: product.id,
             slug: product.slug,
-            providerKey: product.providerKey,
           })
         }
       >
@@ -92,8 +91,6 @@ export function ProductPurchaseActions({
       title: product.title,
       variantTitle: selectedVariant?.title,
       optionSummary: selectedVariant?.optionSummary,
-      sku: selectedVariant?.sku,
-      externalVariantId: selectedVariant?.externalVariantId,
       price: selectedPrice,
       currency: product.currency,
       imageUrl: selectedImageUrl,

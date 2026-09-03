@@ -22,6 +22,12 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
   const store = await resolveStoreForRequest({ host });
   const base = store ? getCanonicalBaseUrl(store) : "";
 
+  if (store && store.launchStatus !== "LIVE") {
+    return {
+      rules: [{ userAgent: "*", disallow: "/" }],
+    };
+  }
+
   return {
     rules: [
       {

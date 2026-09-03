@@ -15,6 +15,7 @@ export const newsletterSchema = z.object({
 
 export const checkoutSchema = z.object({
   storeSlug: z.string().min(1),
+  checkoutAttemptId: z.string().uuid("Invalid checkout attempt ID"),
   name: z.string().min(2, "Enter your full name").max(120),
   email: z.string().email("Enter a valid email address"),
   addressLine1: z.string().min(4, "Enter your street address").max(200),
@@ -38,6 +39,8 @@ export const trackEventSchema = z.object({
   storeSlug: z.string().min(1),
   eventName: z.string().min(1),
   sessionId: z.string().min(1).max(80),
+  consentVersion: z.string().min(1).max(40),
+  consentPolicyVersion: z.string().min(1).max(80),
   payload: z.record(z.unknown()).default({}),
 });
 

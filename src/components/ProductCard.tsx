@@ -22,7 +22,7 @@ export function ProductCard({
     : product.stockStatus;
 
   return (
-    <article className="card group flex h-full flex-col overflow-hidden">
+    <article className="card storefront-product-card group flex h-full flex-col overflow-hidden">
       <Link href={href} className="relative block aspect-square overflow-hidden bg-ink/5">
         <img
           src={product.imageUrl}

@@ -1,11 +1,9 @@
 /**
- * Static hostname -> store slug map used by the edge middleware.
+ * Development-only hostname aliases.
  *
- * The middleware runs on the edge runtime and cannot query the database, so
- * this map is the first (and fastest) resolution step. The Domain table in
- * the database is the source of truth for server-side resolution (sitemaps,
- * feeds) via src/lib/tenant/resolve-tenant.ts; keep both in sync when adding
- * a store. Replace the .example domains with real domains at launch.
+ * Production Node.js middleware resolves the Domain table as its single
+ * authority. This map keeps seeded localhost/dev host simulations convenient;
+ * it must never activate or override a production tenant.
  */
 
 export const DEFAULT_STORE_SLUG =
@@ -26,9 +24,7 @@ export const DOMAIN_MAP: Record<string, string> = {
   "turklar.example": "hiking-gear",
   "www.turklar.example": "hiking-gear",
 
-  // ---- Placeholder slots for future stores (up to ~40 domains). ----
-  // Generate the store with /admin/generator, seed it, then point the slug
-  // here. Slugs without a seeded store fall back to the 404 page.
+  // ---- Optional local-development aliases. ----
   "espressohjem.example": "espresso-home",
   "kjokkenproff.example": "kitchen-pro",
   "babytrygg.example": "baby-safety",

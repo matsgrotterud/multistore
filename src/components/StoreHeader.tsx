@@ -12,7 +12,7 @@ export function StoreHeader({
   categories: Category[];
 }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-ink/10 bg-white/95 backdrop-blur">
+    <header className="storefront-header sticky top-0 z-40 border-b border-ink/10 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-site items-center justify-between gap-4 px-4 py-3 sm:px-6">
         <Link href={storefrontHref(store, "/")} className="shrink-0" aria-label={`${store.name} home`}>
           <span className="font-heading text-xl font-extrabold tracking-tight text-primary">

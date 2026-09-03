@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { StoreBlueprint } from "@/lib/ai/types";
 import type { GuardrailReport } from "@/lib/ai/content-guardrails";
+import type { StoreBlueprintPreparation } from "@/lib/ai/store-blueprint";
 import {
+  confirmProductClassAction,
   createStoreFromBlueprintAction,
   generateBlueprintAction,
   generateProductCopyAction,
@@ -85,7 +87,7 @@ const STATUS_MESSAGES = [
   "Searching supplier catalog",
   "Checking product relevance",
   "Saving media to storage",
-  "Publishing preview products",
+  "Evaluating preview visibility gates",
 ] as const;
 
 /**
@@ -243,6 +245,12 @@ function buildBlueprintInput(values: BlueprintFormValues) {
   };
 }
 
+function newGenerationKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
   return (
     <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -254,11 +262,11 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
           <dd className="font-mono">{blueprint.storeSlug}</dd>
         </div>
         <div>
-          <dt className="font-medium text-slate-800">Categories</dt>
+          <dt className="font-medium text-slate-800">Validated V3 category</dt>
           <dd>{blueprint.categories.map((category) => category.name).join(", ")}</dd>
         </div>
         <div className="sm:col-span-2">
-          <dt className="font-medium text-slate-800">Import queries</dt>
+          <dt className="font-medium text-slate-800">Validated V3 supplier queries</dt>
           <dd className="font-mono text-[11px]">
             {blueprint.productImportQueries.slice(0, 8).join(" · ")}
           </dd>
@@ -282,6 +290,199 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
   );
 }
 
+function RuntimeClassProposalPanel({
+  plan,
+  onConfirm,
+  confirming,
+}: {
+  plan: Extract<
+    StoreBlueprintPreparation,
+    { status: "NEEDS_PRODUCT_CLASS_CONFIRMATION" }
+  >;
+  onConfirm: (acknowledged: boolean) => void;
+  confirming: boolean;
+}) {
+  const [acknowledged, setAcknowledged] = useState(false);
+  return (
+    <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">Confirm the proposed physical product class</p>
+      <p className="mt-1">
+        This niche is clear enough for a provisional catalog class, but the class is not part of
+        the reusable reviewed ontology yet. Confirming it authorizes only this internal noindex
+        preview.
+      </p>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="font-medium opacity-70">Provisional class</dt>
+          <dd className="break-all font-mono font-semibold">{plan.proposal.productClass}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Canonical category</dt>
+          <dd>{plan.proposal.category.name}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Required product evidence</dt>
+          <dd>{plan.proposal.classConcepts.join(" · ")}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Policy</dt>
+          <dd className="font-mono font-semibold">{plan.proposal.policyDecision}</dd>
+        </div>
+      </dl>
+      <p className="mt-3 break-words font-mono text-[11px]">
+        supplier queries: {plan.queryPlan.queries.map((entry) => entry.query).join(" · ")}
+      </p>
+      <p className="mt-2 break-words font-mono text-[11px]">
+        exclusions: {plan.proposal.excludedClasses.flatMap((entry) => entry.concepts).join(" · ")}
+      </p>
+      <label className="mt-4 flex items-start gap-2 rounded-md border border-amber-300 bg-white p-3 text-xs">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          I confirm that this describes one physical product class. This does not approve product
+          safety, compliance, supplier reliability or live sales.
+        </span>
+      </label>
+      <button
+        type="button"
+        disabled={!acknowledged || confirming}
+        aria-busy={confirming}
+        onClick={() => onConfirm(acknowledged)}
+        className="mt-3 rounded-md bg-amber-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {confirming ? "Confirming class…" : "Confirm class & generate blueprint"}
+      </button>
+      <p className="mt-2 text-xs font-medium">
+        Live commerce remains blocked. A separate reviewed-class and launch approval is required.
+      </p>
+    </div>
+  );
+}
+
+function IntentPlanSummary({
+  plan,
+  onConfirm,
+  confirming,
+}: {
+  plan: StoreBlueprintPreparation;
+  onConfirm: (acknowledged: boolean) => void;
+  confirming: boolean;
+}) {
+  if (plan.status === "BLOCKED") {
+    return (
+      <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-950">
+        <p className="font-bold">Product class blocked by policy</p>
+        <p className="mt-1">
+          No supplier query, creative blueprint, generation run or store was created.
+        </p>
+        <p className="mt-3 font-mono text-xs">{plan.reasonCodes.join(" · ")}</p>
+      </div>
+    );
+  }
+
+  if (plan.status === "NEEDS_PRODUCT_CLASS_CONFIRMATION") {
+    return (
+      <RuntimeClassProposalPanel
+        key={plan.proposal.profileHash}
+        plan={plan}
+        onConfirm={onConfirm}
+        confirming={confirming}
+      />
+    );
+  }
+
+  if (plan.status === "NEEDS_PRODUCT_CLASS") {
+    return (
+      <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <p className="font-bold">Product class confirmation required</p>
+        <p className="mt-1">
+          V3 could not map this description to a reviewed product class. No creative blueprint,
+          supplier query, generation run or store tenant was created.
+        </p>
+        <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+          <div>
+            <dt className="font-medium opacity-70">Normalized intent</dt>
+            <dd className="font-mono">{plan.intent.normalizedNiche || "empty"}</dd>
+          </div>
+          <div>
+            <dt className="font-medium opacity-70">Reason</dt>
+            <dd className="font-mono">
+              {plan.intent.reasonCodes.join(", ") || "INSUFFICIENT_INTENT_EVIDENCE"}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs">
+          Enter one concrete physical product type rather than a broad collection, lifestyle,
+          accessory or gift concept. Clear low-risk classes are proposed for confirmation here;
+          risky or ambiguous classes remain blocked.
+        </p>
+      </div>
+    );
+  }
+
+  const category = plan.blueprint.categories[0];
+  return (
+    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-bold">V3 catalog plan resolved</p>
+          <p className="mt-1 text-xs text-blue-900/80">
+            This class, category and query plan — not AI merchandising suggestions — control product
+            discovery and relevance.
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold ring-1 ring-blue-200">
+          {Math.round(plan.intent.confidence * 100)}% confidence
+        </span>
+      </div>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="font-medium opacity-70">Product class</dt>
+          <dd className="font-mono font-semibold">{plan.intent.productClass}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Class source</dt>
+          <dd>
+            {plan.classProfile.source === "RUNTIME_PROVISIONAL"
+              ? "Admin-confirmed provisional preview class"
+              : "Reviewed static ontology"}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Policy</dt>
+          <dd className="font-mono font-semibold">{plan.intent.policyDecision}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Canonical category</dt>
+          <dd>{category?.name ?? "No category"}</dd>
+        </div>
+        <div>
+          <dt className="font-medium opacity-70">Live commerce</dt>
+          <dd>{plan.intent.liveCommerceAllowed ? "Product-policy eligible" : "Blocked"}</dd>
+        </div>
+      </dl>
+      {plan.intent.riskFlags.length > 0 && (
+        <p className="mt-3 text-xs">
+          <strong>Review flags:</strong> {plan.intent.riskFlags.join(" · ")}
+        </p>
+      )}
+      <p className="mt-2 break-words font-mono text-[11px] text-blue-900">
+        queries: {plan.queryPlan.queries.map((entry) => entry.query).join(" · ")}
+      </p>
+      {plan.intent.policyDecision === "MANUAL_REVIEW_REQUIRED" && (
+        <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-950">
+          This class may only create an internal noindex preview. Live commerce remains blocked until
+          the required merchant and compliance review is recorded.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * Distinct, real category links derived from imported product preview paths
  * (`/s/{slug}/c/{category}/p/{product}`). The result object does not return
@@ -290,6 +491,7 @@ function BlueprintSummary({ blueprint }: { blueprint: StoreBlueprint }) {
 function categoryLinksFromResult(result: CreateStoreFromBlueprintResult) {
   const seen = new Map<string, string>();
   for (const product of result.products) {
+    if (!product.published) continue;
     const match = product.previewPath.match(/^(\/s\/[^/]+\/c\/([^/]+))\//);
     if (match && !seen.has(match[1])) {
       seen.set(match[1], match[2].replace(/-/g, " "));
@@ -301,8 +503,8 @@ function categoryLinksFromResult(result: CreateStoreFromBlueprintResult) {
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-md bg-white/70 px-2.5 py-1.5">
-      <dt className="text-[10px] font-medium uppercase tracking-wide text-emerald-700">{label}</dt>
-      <dd className="text-sm font-bold text-emerald-950">{value}</dd>
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+      <dd className="text-sm font-bold text-slate-950">{value}</dd>
     </div>
   );
 }
@@ -310,26 +512,54 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
   const mediaCount = result.products.reduce((total, product) => total + product.imageCount, 0);
   const categoryLinks = categoryLinksFromResult(result);
+  const isReady = result.generationStatus === "READY_FOR_PREVIEW";
+  const needsReview =
+    result.generationStatus === "READY_FOR_INTERNAL_PREVIEW_MANUAL_REVIEW";
+  const tone = isReady
+    ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+    : needsReview
+      ? "border-amber-300 bg-amber-50 text-amber-950"
+      : "border-red-300 bg-red-50 text-red-950";
+  const title = isReady
+    ? "Preview ready"
+    : needsReview
+      ? "Internal preview ready — manual review required"
+      : `Generation stopped — ${result.generationStatus.replaceAll("_", " ").toLowerCase()}`;
   return (
-    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
-      <p className="text-lg font-bold">Store created — preview ready</p>
+    <div className={`mt-4 rounded-xl border p-5 text-sm ${tone}`}>
+      <p className="text-lg font-bold">{title}</p>
       <p className="mt-1">
-        <strong>{result.storeName}</strong> is live in <strong>Preview</strong> mode (noindex until
-        you connect a production domain).
+        {result.previewReady ? (
+          <>
+            <strong>{result.storeName}</strong> has an internal, noindex preview. This is not a
+            live-commerce approval.
+          </>
+        ) : (
+          <>
+            No visible storefront was approved. {result.storeSlug ? "An inactive DRAFT was retained for diagnostics." : "No store tenant was created."}
+          </>
+        )}
       </p>
+
+      <dl className="mt-4 grid gap-2 rounded-lg border border-current/15 bg-white/50 p-3 text-xs sm:grid-cols-3">
+        <div><dt className="font-medium opacity-65">Run</dt><dd className="mt-0.5 break-all font-mono">{result.runId}</dd></div>
+        <div><dt className="font-medium opacity-65">Product class</dt><dd className="mt-0.5 font-semibold">{result.productClass ?? "UNKNOWN"}</dd></div>
+        <div><dt className="font-medium opacity-65">Intent / policy</dt><dd className="mt-0.5 font-semibold">{Math.round(result.intentConfidence * 100)}% · {result.policyDecision}</dd></div>
+      </dl>
 
       <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
         <Stat label="Categories" value={result.categoriesCreated} />
         <Stat label="Discovered" value={result.productsDiscovered} />
         <Stat label="Rejected" value={result.candidatesRejected} />
+        <Stat label="Relevant" value={result.productsRelevant} />
         <Stat label="Imported" value={result.productsImported} />
-        <Stat label="Published" value={result.productsPublished} />
+        <Stat label="Visible" value={result.productsPreviewVisible} />
+        <Stat label="Budget" value={`${result.productsImported}/${result.importBudget}`} />
         <Stat label="No media" value={result.productsWithoutMedia} />
         <Stat label="Images" value={mediaCount} />
-        <Stat label="Guides" value={result.guidesCreated} />
       </dl>
 
-      {categoryLinks.length > 0 && (
+      {result.previewReady && categoryLinks.length > 0 && (
         <div className="mt-3 text-xs">
           <p className="font-semibold">Categories</p>
           <div className="mt-1 flex flex-wrap gap-1.5">
@@ -339,7 +569,7 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
                 href={category.path}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-emerald-900 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                className="rounded-full bg-white px-2.5 py-1 font-medium capitalize text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
               >
                 {category.label}
               </a>
@@ -349,18 +579,26 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
       )}
 
       <ul className="mt-3 space-y-1 text-xs">
+        <li>
+          Store foundation: <strong>{result.foundationStatus}</strong> · admin-only brand,
+          design and noindex SEO draft
+        </li>
         {result.importQueries.length > 0 && (
           <li className="font-mono text-[11px]">
             queries: {result.importQueries.slice(0, 8).join(" · ")}
           </li>
         )}
+        <li>
+          Live commerce: <strong>{result.liveCommerceAllowed ? "eligible at product-policy level" : "blocked"}</strong>
+          {result.manualReviewRequired ? " · merchant review is still pending" : ""}
+        </li>
         {result.plannedDomain ? (
           <li>
             Planned domain: <span className="font-mono">{result.plannedDomain}</span> (not connected
             yet)
           </li>
         ) : (
-          <li>No planned domain yet — using test preview URLs only</li>
+          <li>No planned production domain is recorded.</li>
         )}
       </ul>
 
@@ -369,8 +607,8 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
           <p className="font-semibold">No products were imported</p>
           <p className="mt-1">
             {result.productsDiscovered} candidates were discovered and {result.candidatesRejected}{" "}
-            were rejected. The store, categories and content were still created — review the
-            rejection reasons below or try a broader/more specific niche query, then re-run import.
+            were rejected. No FAQ, guide, collection or visible storefront was approved. Review the
+            evidence below before starting a new run.
           </p>
         </div>
       )}
@@ -378,7 +616,7 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
       {result.productsImported > 0 && result.productsPublished === 0 && (
         <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
           <p className="font-semibold">
-            Store was created, but no products were published.
+            No product cleared the preview visibility gates.
           </p>
           <p className="mt-1">
             {result.productsImported} products were imported but none had usable stored media to
@@ -399,23 +637,34 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
       )}
 
       {result.rejectionReasons.length > 0 && (
-        <div className="mt-3 rounded-md bg-emerald-100/60 p-3 text-xs">
+        <div className="mt-3 rounded-md border border-current/15 bg-white/50 p-3 text-xs">
           <p className="font-semibold">Why candidates were rejected</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {result.rejectionReasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>
-          <p className="mt-1 text-emerald-800">
-            Tip: if many were rejected, try a broader or more specific product query for this niche.
-          </p>
         </div>
       )}
 
+      {result.providerAttempts.length > 0 && (
+        <details className="mt-3 rounded-md border border-current/15 bg-white/50 p-3 text-xs">
+          <summary className="cursor-pointer font-semibold">Provider query attempts ({result.providerAttempts.length})</summary>
+          <ul className="mt-2 space-y-1 font-mono text-[11px]">
+            {result.providerAttempts.map((attempt, index) => (
+              <li key={`${attempt.startedAt}-${index}`}>
+                {attempt.providerKey} · {attempt.query} · #{attempt.attempt} {attempt.status} · {attempt.resultCount} results
+                {attempt.errorCode ? ` · ${attempt.errorCode}` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {result.products.length > 0 && (
-        <div className="mt-3 overflow-hidden rounded-md border border-emerald-200 bg-white">
+        <div className="mt-3 overflow-hidden rounded-md border border-slate-200 bg-white text-slate-950">
           <table className="w-full text-left text-[11px]">
-            <thead className="bg-emerald-100 text-emerald-900">
+            <thead className="bg-slate-100 text-slate-700">
               <tr>
                 <th className="px-2 py-1.5 font-semibold">Product</th>
                 <th className="px-2 py-1.5 font-semibold">Imgs</th>
@@ -425,7 +674,7 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
                 <th className="px-2 py-1.5 font-semibold">Open</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-emerald-100 text-emerald-950">
+            <tbody className="divide-y divide-slate-100">
               {result.products.map((product) => (
                 <tr key={product.slug}>
                   <td className="px-2 py-1.5">{product.title}</td>
@@ -434,14 +683,9 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
                   <td className="px-2 py-1.5">{product.published ? "yes" : "no"}</td>
                   <td className="px-2 py-1.5">{product.checkoutAvailable ? "yes" : "no"}</td>
                   <td className="px-2 py-1.5">
-                    <a
-                      href={product.previewPath}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium underline hover:text-emerald-700"
-                    >
-                      view
-                    </a>
+                    {result.previewReady && product.published ? (
+                      <a href={product.previewPath} target="_blank" rel="noreferrer" className="font-medium underline hover:text-slate-600">view</a>
+                    ) : "blocked"}
                   </td>
                 </tr>
               ))}
@@ -450,28 +694,33 @@ function LaunchSuccess({ result }: { result: CreateStoreFromBlueprintResult }) {
         </div>
       )}
       <div className="mt-4 flex flex-wrap gap-2">
-        <a
-          href={result.previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-md bg-emerald-800 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-900"
+        {result.previewReady && result.previewUrl && (
+          <a href={result.previewUrl} target="_blank" rel="noreferrer" className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700">Open internal preview</a>
+        )}
+        {result.storeSlug && (
+          <>
+        <Link
+          href={`/admin/stores/${result.storeSlug}/foundation`}
+          className="rounded-md bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800"
         >
-          Open preview storefront
-        </a>
+          Open Foundation Studio
+        </Link>
         <Link
           href={`/admin/stores/${result.storeSlug}/edit`}
-          className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-300 hover:bg-emerald-100"
+          className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50"
         >
           Edit store
         </Link>
         <Link
           href={`/admin/stores/${result.storeSlug}/products`}
-          className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-300 hover:bg-emerald-100"
+          className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50"
         >
           Manage products
         </Link>
+          </>
+        )}
       </div>
-      <p className="mt-3 font-mono text-[11px] text-emerald-800">{result.previewUrl}</p>
+      {result.previewUrl && <p className="mt-3 font-mono text-[11px] opacity-70">{result.previewUrl}</p>}
     </div>
   );
 }
@@ -527,6 +776,8 @@ function EnvStatusPanel({ safety }: { safety: MediaSafetyProps }) {
 }
 
 export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps }) {
+  const generationKeyRef = useRef(newGenerationKey());
+  const preparationEpochRef = useRef(0);
   const [formValues, setFormValues] = useState<BlueprintFormValues>({
     domain: "",
     testOnly: true,
@@ -544,8 +795,7 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
     country: "Norway",
   });
   const [blueprintResult, setBlueprintResult] = useState<{
-    blueprint?: StoreBlueprint;
-    guardrails?: GuardrailReport;
+    plan?: StoreBlueprintPreparation;
     error?: string;
   } | null>(null);
   const [launchResult, setLaunchResult] = useState<{
@@ -559,7 +809,9 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
   } | null>(null);
   const [importProducts, setImportProducts] = useState(true);
   const [autoPublish, setAutoPublish] = useState(true);
+  const [useDemoCatalog, setUseDemoCatalog] = useState(false);
   const [isBlueprintPending, startBlueprint] = useTransition();
+  const [isClassConfirmPending, startClassConfirm] = useTransition();
   const [isLaunchPending, startLaunch] = useTransition();
   const [isCopyPending, startCopy] = useTransition();
 
@@ -583,26 +835,69 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
       country: String(data.get("country") ?? ""),
     };
     setFormValues(values);
+    // Invalidate the previously approved token immediately. Otherwise the old
+    // launch controls remain usable while a same-input re-analysis is pending.
+    setBlueprintResult(null);
     setLaunchResult(null);
+    generationKeyRef.current = newGenerationKey();
+    const requestEpoch = ++preparationEpochRef.current;
 
     startBlueprint(async () => {
       const result = await generateBlueprintAction(buildBlueprintInput(values));
+      if (requestEpoch !== preparationEpochRef.current) return;
       setBlueprintResult(
         result.ok
-          ? { blueprint: result.data?.blueprint, guardrails: result.data?.guardrails }
+          ? { plan: result.data }
           : { error: result.error }
       );
     });
   }
 
+  function handleClassConfirmation(acknowledged: boolean) {
+    const proposal = blueprintResult?.plan;
+    if (
+      proposal?.status !== "NEEDS_PRODUCT_CLASS_CONFIRMATION" ||
+      isClassConfirmPending
+    ) {
+      return;
+    }
+    const requestEpoch = preparationEpochRef.current;
+    setLaunchResult(null);
+    startClassConfirm(async () => {
+      const result = await confirmProductClassAction({
+        proposalToken: proposal.proposalToken,
+        acknowledged,
+      });
+      if (requestEpoch !== preparationEpochRef.current) return;
+      if (result.ok && result.data?.status === "READY") {
+        generationKeyRef.current = newGenerationKey();
+      }
+      // A transient confirmation/AI failure must not discard the still-valid
+      // proposal. Keeping it visible lets the operator inspect and retry it.
+      setBlueprintResult(
+        result.ok
+          ? { plan: result.data }
+          : { plan: proposal, error: result.error }
+      );
+    });
+  }
+
   function handleLaunchStore() {
-    if (isLaunchPending) return;
+    const plan = blueprintResult?.plan;
+    if (isLaunchPending || plan?.status !== "READY") return;
+    const approvedPlanToken = plan.approvedPlanToken;
+    const idempotencyKey = generationKeyRef.current;
+    const requestedImportProducts = importProducts;
+    const requestedAutoPublish = autoPublish;
+    const requestedDemoCatalog = useDemoCatalog;
     setLaunchResult(null);
     startLaunch(async () => {
       const result = await createStoreFromBlueprintAction({
-        blueprintInput: buildBlueprintInput(formValues),
-        importProducts,
-        autoPublishScored: autoPublish,
+        approvedPlanToken,
+        importProducts: requestedImportProducts,
+        autoPublishScored: requestedAutoPublish,
+        idempotencyKey,
+        useDemoCatalog: requestedDemoCatalog,
       });
       setLaunchResult(result.ok ? { data: result.data } : { error: result.error });
     });
@@ -629,9 +924,13 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
     });
   }
 
+  const preparedPlan =
+    blueprintResult?.plan?.status === "READY" ? blueprintResult.plan : null;
   const canLaunch =
-    blueprintResult?.blueprint &&
-    blueprintResult.guardrails?.passed &&
+    preparedPlan?.guardrails.passed &&
+    preparedPlan.approvedPlanToken.length > 0 &&
+    preparedPlan.intent.productClass &&
+    preparedPlan.queryPlan.queries.length > 0 &&
     !launchResult?.data;
 
   return (
@@ -639,12 +938,11 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
       {mediaSafety && <EnvStatusPanel safety={mediaSafety} />}
 
       <section className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-950">
-        <h2 className="font-bold">Launch a new store in minutes</h2>
+        <h2 className="font-bold">Build a catalog hypothesis</h2>
         <p className="mt-1 text-blue-900/90">
-          Fill in your niche and audience. You do <strong>not</strong> need a real domain yet — we
-          create a <strong>Preview</strong> store on this deployment (noindex) at{" "}
-          <code className="rounded bg-white/70 px-1">/s/your-slug</code>. Add your planned domain
-          when ready, then mark the store Live after DNS is connected.
+          The generator first classifies a product class, then checks supplier evidence and durable
+          media. A noindex preview is created only when the minimum catalog passes. Live commerce
+          remains a separate, fail-closed approval.
         </p>
       </section>
 
@@ -652,10 +950,19 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
         <section className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-2">
           <h2 className="text-lg font-bold">1. Describe your store</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Minimal input → full blueprint with categories, SEO, theme, trust copy and import
-            queries.
+            Input becomes a versioned intent and class-first supplier query plan. Unknown product
+            classes stop for review instead of producing generic categories.
           </p>
-          <form onSubmit={handleBlueprintSubmit} className="mt-4 grid gap-4 lg:grid-cols-2">
+          <form
+            onSubmit={handleBlueprintSubmit}
+            onChange={() => {
+              preparationEpochRef.current += 1;
+              setBlueprintResult(null);
+              setLaunchResult(null);
+              generationKeyRef.current = newGenerationKey();
+            }}
+            className="mt-4 grid gap-4 lg:grid-cols-2"
+          >
             <div className="lg:col-span-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -767,7 +1074,7 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
             </div>
             <div className="lg:col-span-2">
               <label htmlFor="gen-hints" className={labelClass}>
-                Supplier search hints
+                Supplier discovery notes
               </label>
               <input
                 id="gen-hints"
@@ -777,8 +1084,8 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 defaultValue={formValues.supplierSearchHints}
               />
               <p className="mt-1 text-xs text-slate-500">
-                Used only for product discovery. These will <strong>not</strong> become category
-                names.
+                Kept as operator context. Current V3 supplier queries come only from the validated
+                product class and cannot be widened by these notes.
               </p>
             </div>
             <div className="lg:col-span-2">
@@ -798,7 +1105,7 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
             </div>
             <div className="lg:col-span-2">
               <label htmlFor="gen-categoryhints" className={labelClass}>
-                Optional category ideas
+                Optional creative category ideas
               </label>
               <input
                 id="gen-categoryhints"
@@ -808,7 +1115,8 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 defaultValue={formValues.categoryHints}
               />
               <p className="mt-1 text-xs text-slate-500">
-                Leave empty to auto-generate categories from the niche.
+                Creative input only. The persisted catalog category comes from the validated V3
+                product class shown below.
               </p>
             </div>
             <div>
@@ -821,8 +1129,8 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 className={inputClass}
                 defaultValue={formValues.productCountGoal}
               >
-                <option value="small">Small demo (6–8)</option>
-                <option value="standard">Standard (12–18)</option>
+                <option value="small">Small catalog (exactly 8)</option>
+                <option value="standard">Standard catalog (exactly 12)</option>
                 <option value="broad">Broad catalog (24+ later)</option>
               </select>
             </div>
@@ -868,7 +1176,9 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 disabled={isBlueprintPending}
                 className="rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
               >
-                {isBlueprintPending ? "Generating blueprint…" : "2. Generate blueprint"}
+                {isBlueprintPending
+                  ? "Analyzing niche…"
+                  : "2. Analyze niche & prepare blueprint"}
               </button>
             </div>
           </form>
@@ -878,26 +1188,35 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
               {blueprintResult.error}
             </p>
           )}
-          {blueprintResult?.guardrails && (
-            <GuardrailSummary report={blueprintResult.guardrails} />
+          {blueprintResult?.plan && (
+            <IntentPlanSummary
+              plan={blueprintResult.plan}
+              onConfirm={handleClassConfirmation}
+              confirming={isClassConfirmPending}
+            />
           )}
-          {blueprintResult?.blueprint && (
-            <BlueprintSummary blueprint={blueprintResult.blueprint} />
-          )}
+          {preparedPlan && <GuardrailSummary report={preparedPlan.guardrails} />}
+          {preparedPlan && <BlueprintSummary blueprint={preparedPlan.blueprint} />}
 
           {canLaunch && (
             <div className="mt-6 rounded-lg border border-slate-200 p-4">
-              <h3 className="font-bold">3. Create store in database</h3>
+              <h3 className="font-bold">3. Run Generator V3</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Builds the tenant with theme, categories, configured supplier products, FAQ and a
-                starter guide. Preview mode = noindex until you go Live.
+                Creates a durable run record and an inactive DRAFT staging tenant. It activates an
+                internal noindex preview only after the catalog contract passes.
               </p>
               <div className="mt-3 flex flex-wrap gap-4 text-sm">
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={importProducts}
-                    onChange={(event) => setImportProducts(event.target.checked)}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setImportProducts(enabled);
+                      if (!enabled) setUseDemoCatalog(false);
+                      setLaunchResult(null);
+                      generationKeyRef.current = newGenerationKey();
+                    }}
                   />
                   Import supplier products from configured providers
                 </label>
@@ -906,11 +1225,35 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                     type="checkbox"
                     checked={autoPublish}
                     disabled={!importProducts}
-                    onChange={(event) => setAutoPublish(event.target.checked)}
+                    onChange={(event) => {
+                      setAutoPublish(event.target.checked);
+                      setLaunchResult(null);
+                      generationKeyRef.current = newGenerationKey();
+                    }}
                   />
-                  Auto-publish high-scoring imports
+                  Make products visible only when every hard preview gate passes
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={useDemoCatalog}
+                    disabled={!importProducts}
+                    onChange={(event) => {
+                      setUseDemoCatalog(event.target.checked);
+                      setLaunchResult(null);
+                      generationKeyRef.current = newGenerationKey();
+                    }}
+                  />
+                  Use synthetic demo catalog (local proof only)
                 </label>
               </div>
+              {useDemoCatalog && importProducts && (
+                <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-950">
+                  Demo mode uses clearly synthetic supplier fixtures. It does not prove real stock,
+                  supplier availability, compliance or fulfillment and can never approve live
+                  commerce.
+                </p>
+              )}
               <button
                 type="button"
                 disabled={isLaunchPending || Boolean(mediaSafety?.unsafe && importProducts)}
@@ -922,8 +1265,8 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
                 {isLaunchPending
                   ? "Generating store…"
                   : importProducts
-                    ? "Create store & open preview"
-                    : "Create structure-only preview"}
+                    ? "Run catalog generation"
+                    : "Create inactive structure-only DRAFT"}
               </button>
 
               {mediaSafety?.unsafe && importProducts && (
@@ -952,12 +1295,12 @@ export function GeneratorForms({ mediaSafety }: { mediaSafety?: MediaSafetyProps
           )}
           {launchResult?.data && <LaunchSuccess result={launchResult.data} />}
 
-          {blueprintResult?.blueprint && (
+          {blueprintResult?.plan && (
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-medium text-slate-600">
-                Raw blueprint JSON
+                Raw prepared-plan JSON
               </summary>
-              <JsonPreview value={blueprintResult.blueprint} />
+              <JsonPreview value={blueprintResult.plan} />
             </details>
           )}
         </section>

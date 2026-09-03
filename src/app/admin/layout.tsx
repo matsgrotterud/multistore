@@ -32,13 +32,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           )}
         </div>
       </header>
-      <div className="mx-auto max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[180px_1fr]">
+      <div className="mx-auto min-w-0 max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[180px_minmax(0,1fr)]">
         {authenticated && (
           <aside className="mb-6 lg:mb-0">
             <AdminNav />
           </aside>
         )}
-        <main className={authenticated ? "" : "lg:col-span-2"}>{children}</main>
+        <main className={`min-w-0 max-w-full ${authenticated ? "" : "lg:col-span-2"}`}>
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -1,10 +1,34 @@
 import { prisma } from "@/lib/db";
 import type { StoreBlueprint, StoreBlueprintInput, ProductCountGoal } from "@/lib/ai/types";
-import { generateBuyingGuideOutline } from "@/lib/ai/store-blueprint";
 import {
-  buildCategoryImportQueries,
   deriveNegativeKeywords,
 } from "@/lib/ai/category-strategy";
+import {
+  buildClassQueryPlanV1,
+  buildGenerationResultV1,
+  profileFromOntologyV1,
+  resolveNicheIntentV1,
+  resolveCatalogProviderKeysV1,
+  GENERATION_RESULT_VERSION,
+  EVALUATOR_VERSION,
+  INTENT_VERSION,
+  ONTOLOGY_VERSION,
+  type GenerationResultV1,
+  type ClassQueryPlanV1,
+  type NicheIntentV1,
+  type ProductClassProfileV1,
+} from "@/lib/generator-v3";
+import {
+  completeGenerationRun,
+  GENERATOR_VERSION,
+  updateGenerationRun,
+} from "@/lib/generator/generation-run";
+import { decideCatalogVisibilityV3 } from "@/lib/stores/catalog-visibility-v3";
+import { isProductCheckoutAvailable } from "@/lib/stores/checkout-availability";
+import {
+  ProviderSearchFailure,
+  type ProviderQueryAttempt,
+} from "@/lib/catalog/provider-search-policy";
 import { assertSafeMediaWriteContext } from "@/lib/storage/media-storage-safety";
 import {
   defaultPrivacyPolicy,
@@ -25,6 +49,8 @@ import {
   serializeStoreSettings,
   type StoreSettings,
 } from "@/lib/settings/store-settings";
+import { recommendStorefrontPresentation } from "@/lib/storefront/presentation";
+import { buildStoreFoundation } from "@/lib/storefront/store-foundation";
 
 export interface CreateStoreFromBlueprintOptions {
   blueprint: StoreBlueprint;
@@ -33,6 +59,17 @@ export interface CreateStoreFromBlueprintOptions {
   importProducts?: boolean;
   /** Publish imported products that meet the auto-publish score threshold. */
   autoPublishScored?: boolean;
+  /** Persisted CatalogSyncRun.id used as the idempotency key. */
+  generationRunId: string;
+  /** Explicit local proof mode. Never inferred as a fallback from provider failure. */
+  providerKeys?: string[];
+  /** Exact signed-plan catalog truth. Runtime classes cannot be reconstructed from Store.niche. */
+  preparedCatalogPlan?: {
+    classProfile: ProductClassProfileV1;
+    intent: NicheIntentV1;
+    queryPlan: ClassQueryPlanV1;
+    planDigest: string;
+  };
 }
 
 export interface GeneratedProductSummary {
@@ -53,11 +90,23 @@ export interface CreateStoreFromBlueprintResult {
   previewUrl: string;
   previewQueryUrl: string;
   plannedDomain: string | null;
-  launchStatus: "PREVIEW";
+  launchStatus: "DRAFT" | "PREVIEW";
+  runId: string;
+  generationStatus: GenerationResultV1["status"];
+  previewReady: boolean;
+  manualReviewRequired: boolean;
+  productClass: string | null;
+  intentConfidence: number;
+  policyDecision: NicheIntentV1["policyDecision"];
+  liveCommerceAllowed: boolean;
+  autonomousLaunchAllowed: boolean;
   categoriesCreated: number;
   productsDiscovered: number;
   productsImported: number;
   productsPublished: number;
+  productsRelevant: number;
+  productsPreviewVisible: number;
+  importBudget: number;
   candidatesRejected: number;
   rejectionReasons: string[];
   guidesCreated: number;
@@ -68,6 +117,9 @@ export interface CreateStoreFromBlueprintResult {
   productsWithoutMedia: number;
   /** Non-fatal issues during import (per-category failures, etc.). */
   warnings: string[];
+  providerAttempts: ProviderQueryAttempt[];
+  /** Provider-independent brand/content/SEO draft stored for admin review. */
+  foundationStatus: "PASS" | "REVIEW";
 }
 
 /**
@@ -79,9 +131,9 @@ const IMPORT_GOALS: Record<
   ProductCountGoal,
   { maxCategories: number; perCategory: number; totalImport: number; minPublish: number }
 > = {
-  small: { maxCategories: 3, perCategory: 3, totalImport: 8, minPublish: 6 },
-  standard: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 6 },
-  broad: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 6 },
+  small: { maxCategories: 3, perCategory: 3, totalImport: 8, minPublish: 8 },
+  standard: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 12 },
+  broad: { maxCategories: 4, perCategory: 4, totalImport: 12, minPublish: 12 },
 };
 
 /** Upper bound on stored media per product (informational; ingestion-side cap). */
@@ -91,12 +143,11 @@ export const MAX_MEDIA_PER_PRODUCT = 8;
  * Provider keys used for generated-store imports. Mirrors the resolution in
  * import-products.ts so StoreSupplierSettings and discovery stay consistent.
  */
-function importProviderKeys(): string[] {
-  const configured = process.env.CATALOG_IMPORT_PROVIDER_KEYS?.split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (configured && configured.length > 0) return configured;
-  return process.env.CJ_ENABLED === "true" ? ["cj"] : ["mock"];
+function importProviderKeys(explicit?: string[]): string[] {
+  return resolveCatalogProviderKeysV1({
+    explicit,
+    configuredCsv: process.env.CATALOG_IMPORT_PROVIDER_KEYS,
+  });
 }
 
 function fulfillmentModeForProvider(providerKey: string): string {
@@ -133,27 +184,113 @@ function normalizeDomain(value: string | undefined): string | null {
 
 function buildStoreSettings(
   blueprint: StoreBlueprint,
-  input: StoreBlueprintInput
+  input: StoreBlueprintInput,
+  runId: string,
+  intent: NicheIntentV1,
+  queryPlan: ClassQueryPlanV1,
+  classProfile: ProductClassProfileV1,
+  planDigest: string | null,
+  goal: { totalImport: number; minPublish: number }
 ): StoreSettings {
+  const presentation = recommendStorefrontPresentation({
+    niche: input.niche,
+    positioning: blueprint.tagline,
+    brandVoice: input.brandVoice,
+  });
+  const foundation = buildStoreFoundation({
+    identity: {
+      brandName: blueprint.brandName,
+      logoText: blueprint.brandName.slice(0, 24),
+      niche: input.niche,
+      audience: input.audience,
+      brandVoice: input.brandVoice,
+      locale: input.locale,
+      country: input.country,
+    },
+    positioning: blueprint.tagline,
+    presentation,
+    theme: {
+      primaryColor: blueprint.themeColors.primary,
+      backgroundColor: blueprint.themeColors.background,
+      textColor: blueprint.themeColors.text,
+    },
+  });
   return {
     ...DEFAULT_STORE_SETTINGS,
     homepage: {
       ...DEFAULT_STORE_SETTINGS.homepage,
       showQuizCta: true,
-      showComparisonCta: blueprint.categories.length >= 2,
+      showComparisonCta: false,
       trustBarItems: blueprint.homepageSections
         .filter((section) => section.toLowerCase().includes("trust"))
         .slice(0, 3),
     },
+    presentation,
+    foundation,
     automation: {
       ...DEFAULT_STORE_SETTINGS.automation,
-      importKeywords: blueprint.productImportQueries,
+      importKeywords: queryPlan.queries.map((entry) => entry.query),
       importDefaultSupplier: "MockSupply Co",
     },
     compliance: {
       ...DEFAULT_STORE_SETTINGS.compliance,
       showDropshipDisclosure: true,
       importTaxDisclaimer: `Import duties or taxes may apply on delivery in ${input.country}.`,
+    },
+    generation: {
+      contractVersion: GENERATION_RESULT_VERSION,
+      runId,
+      generatorVersion: GENERATOR_VERSION,
+      intentVersion: INTENT_VERSION,
+      ontologyVersion: ONTOLOGY_VERSION,
+      evaluatorVersion: EVALUATOR_VERSION,
+      status: "RUNNING",
+      productClass: intent.productClass,
+      intentConfidence: intent.confidence,
+      policyDecision: intent.policyDecision,
+      classProfile,
+      planDigest,
+      minimumProducts: goal.minPublish,
+      relevantProducts: 0,
+      previewVisibleProducts: 0,
+      importedProducts: 0,
+      importBudget: goal.totalImport,
+      manualReviewRequired: intent.policyDecision === "MANUAL_REVIEW_REQUIRED",
+      manualReviewStatus:
+        intent.policyDecision === "MANUAL_REVIEW_REQUIRED" ? "PENDING" : "NOT_REQUIRED",
+      humanLaunchApproved: false,
+      humanLaunchApprovedBy: null,
+      humanLaunchApprovedAt: null,
+      liveCommerceAllowed: false,
+      autonomousLaunchAllowed: false,
+      completedAt: null,
+      reasonCodes: [],
+    },
+  };
+}
+
+function completeStoreSettings(
+  base: StoreSettings,
+  intent: NicheIntentV1,
+  result: GenerationResultV1
+): StoreSettings {
+  if (!base.generation) return base;
+  return {
+    ...base,
+    generation: {
+      ...base.generation,
+      status: result.status,
+      relevantProducts: result.counts.relevantProducts,
+      previewVisibleProducts: result.counts.previewVisibleProducts,
+      importedProducts: result.counts.importedProducts,
+      importBudget: result.counts.importBudget,
+      manualReviewRequired: result.manualReviewRequired,
+      manualReviewStatus: result.manualReviewRequired ? "PENDING" : "NOT_REQUIRED",
+      liveCommerceAllowed: result.liveCommerceAllowed,
+      autonomousLaunchAllowed:
+        result.status === "READY_FOR_PREVIEW" && intent.autonomousLaunchAllowed,
+      completedAt: new Date().toISOString(),
+      reasonCodes: result.reasonCodes,
     },
   };
 }
@@ -225,6 +362,31 @@ export async function createStoreFromBlueprint(
   );
 
   const goal = IMPORT_GOALS[input.productCountGoal] ?? IMPORT_GOALS.standard;
+  const fallbackIntent = resolveNicheIntentV1({
+    niche: input.niche,
+    endUser: input.endUser,
+    negativeKeywords: input.negativeKeywords,
+  });
+  const intent = options.preparedCatalogPlan?.intent ?? fallbackIntent;
+  const queryPlan =
+    options.preparedCatalogPlan?.queryPlan ?? buildClassQueryPlanV1(intent);
+  const classProfile =
+    options.preparedCatalogPlan?.classProfile ??
+    profileFromOntologyV1(intent.productClass);
+  const rebuiltQueryPlan = buildClassQueryPlanV1(intent);
+  if (
+    !classProfile ||
+    intent.policyDecision === "BLOCK" ||
+    intent.productClass !== classProfile.productClass ||
+    queryPlan.productClass !== classProfile.productClass ||
+    classProfile.policyDecision !== intent.policyDecision ||
+    classProfile.liveCommerceAllowed !== intent.liveCommerceAllowed ||
+    classProfile.autonomousLaunchAllowed !== intent.autonomousLaunchAllowed ||
+    JSON.stringify(queryPlan) !== JSON.stringify(rebuiltQueryPlan) ||
+    queryPlan.queries.length === 0
+  ) {
+    throw new Error("INSUFFICIENT_INTENT_EVIDENCE: no validated product class/query plan.");
+  }
   const negativeKeywords = deriveNegativeKeywords({
     niche: input.niche,
     endUser: input.endUser,
@@ -233,14 +395,19 @@ export async function createStoreFromBlueprint(
     negativeKeywords: input.negativeKeywords,
   });
 
-  const categories = blueprint.categories.slice(0, goal.maxCategories);
-  if (categories.length === 0) {
-    categories.push({
-      slug: slugify(input.niche) || "catalog",
-      name: input.niche,
-      description: blueprint.tagline,
-    });
-  }
+  // Categories are derived from the validated product class. A narrow honest
+  // category is preferable to empty merchandising buckets.
+  const categories = [classProfile.category].slice(0, goal.maxCategories);
+  const initialSettings = buildStoreSettings(
+    blueprint,
+    input,
+    options.generationRunId,
+    intent,
+    queryPlan,
+    classProfile,
+    options.preparedCatalogPlan?.planDigest ?? null,
+    goal
+  );
 
   const store = await prisma.store.create({
     data: {
@@ -249,7 +416,7 @@ export async function createStoreFromBlueprint(
       legalName: policyInfo.legalName,
       primaryDomain: policyInfo.primaryDomain,
       plannedDomain,
-      launchStatus: "PREVIEW",
+      launchStatus: "DRAFT",
       locale,
       currency,
       niche: input.niche,
@@ -265,7 +432,7 @@ export async function createStoreFromBlueprint(
       returnPolicySummary: policyInfo.returnPolicySummary,
       privacyPolicy: defaultPrivacyPolicy(policyInfo),
       termsOfSale: defaultTermsOfSale(policyInfo),
-      isActive: true,
+      isActive: false,
       theme: {
         create: {
           primaryColor: blueprint.themeColors.primary,
@@ -280,7 +447,7 @@ export async function createStoreFromBlueprint(
       },
       settings: {
         create: {
-          settings: serializeStoreSettings(buildStoreSettings(blueprint, input)),
+          settings: serializeStoreSettings(initialSettings),
         },
       },
       domains: {
@@ -296,23 +463,52 @@ export async function createStoreFromBlueprint(
     },
   });
 
+  await updateGenerationRun(options.generationRunId, {
+    storeId: store.id,
+    normalizedInput: input,
+    intent,
+    policy: {
+      decision: intent.policyDecision,
+      liveCommerceAllowed: intent.liveCommerceAllowed,
+      autonomousLaunchAllowed: intent.autonomousLaunchAllowed,
+      classProfile,
+      planDigest: options.preparedCatalogPlan?.planDigest ?? null,
+    },
+    phase: {
+      phase: "STAGING_STORE_CREATED",
+      status: "PASS",
+      at: new Date().toISOString(),
+      detail: `Inactive DRAFT ${store.slug}`,
+    },
+  });
+
   // Persist supplier import settings so discovery has store-specific thresholds
   // and the admin has visibility. Thresholds match the discovery quality-gate
   // floor (score>=50, margin>=25) so good supplier items are not pre-rejected.
-  const providerKeys = importProviderKeys();
+  const warnings: string[] = [];
+  // Foundation-only mode has no supplier authority and must not resolve a
+  // configured/default provider or create StoreSupplierSettings rows.
+  const providerKeys = importProducts
+    ? importProviderKeys(options.providerKeys)
+    : [];
+  if (providerKeys.length === 1 && providerKeys[0] === "mock") {
+    warnings.push(
+      "Synthetic demo catalog enabled. Products, prices, inventory and media are test fixtures and cannot be used for live commerce."
+    );
+  }
   for (const providerKey of providerKeys) {
     await prisma.storeSupplierSettings.upsert({
       where: { storeId_providerKey: { storeId: store.id, providerKey } },
       update: {
         isEnabled: true,
-        importQueries: JSON.stringify(blueprint.productImportQueries.slice(0, 8)),
+        importQueries: JSON.stringify(queryPlan.queries.map((entry) => entry.query)),
       },
       create: {
         storeId: store.id,
         providerKey,
         isEnabled: true,
         fulfillmentMode: fulfillmentModeForProvider(providerKey),
-        importQueries: JSON.stringify(blueprint.productImportQueries.slice(0, 8)),
+        importQueries: JSON.stringify(queryPlan.queries.map((entry) => entry.query)),
         minMarginPercent: 25,
         minProductScore: 50,
         maxShippingDays: 18,
@@ -325,12 +521,13 @@ export async function createStoreFromBlueprint(
   let productsPublished = 0;
   let productsDiscovered = 0;
   let candidatesRejected = 0;
-  const warnings: string[] = [];
+  let providerFailed = false;
   const importQueriesUsed = new Set<string>();
+  const providerAttempts: ProviderQueryAttempt[] = [];
+  const catalogSelections: unknown[] = [];
   // Bound synchronous import so generation stays demo-fast and never appears to
   // hang. Categories are still all created; products fill until the budget.
   const IMPORT_BUDGET = goal.totalImport;
-  const PER_CATEGORY_LIMIT = goal.perCategory;
   if (input.productCountGoal === "broad") {
     warnings.push(
       "Broad catalog requested: imported up to the demo-safe bound synchronously. Re-run import or background expansion can add more later."
@@ -354,36 +551,37 @@ export async function createStoreFromBlueprint(
     });
 
     if (importProducts && productsImported < IMPORT_BUDGET) {
-      const categoryQueries = buildCategoryImportQueries(
-        {
-          niche: input.niche,
-          endUser: input.endUser,
-          categoryHints: input.categoryHints,
-          supplierSearchHints: input.supplierSearchHints,
-          negativeKeywords,
-        },
-        categorySeed.name
-      );
-      const query = categoryQueries[0] ?? categorySeed.name;
+      const categoryQueries = queryPlan.queries.map((entry) => entry.query);
+      const query = categoryQueries[0]!;
       categoryQueries.forEach((value) => importQueriesUsed.add(value));
       try {
+        const remainingBudget = IMPORT_BUDGET - productsImported;
         const imported = await importProductsForStore({
           storeSlug: store.slug,
           categorySlug: category.slug,
           query,
           queryVariants: categoryQueries.slice(1),
           negativeKeywords,
+          intent,
           targetMargin: 0.35,
-          limit: PER_CATEGORY_LIMIT,
+          limit: remainingBudget,
+          providerKeys,
+          pricePositioning: input.pricePositioning,
         });
         productsImported += imported.imported;
         productsDiscovered += imported.discovered;
         candidatesRejected += imported.rejected;
+        providerAttempts.push(...imported.providerAttempts);
+        catalogSelections.push(imported.selectionPlan);
       } catch (error) {
         // One category's import failure must never abort the whole store or
         // leave an orphaned empty store. Record it and continue.
         const message = error instanceof Error ? error.message : "Unknown import error";
         warnings.push(`Product import failed for category "${categorySeed.name}": ${message}`);
+        if (error instanceof ProviderSearchFailure) {
+          providerAttempts.push(...error.attempts);
+        }
+        providerFailed = true;
         console.error(`import failed for ${store.slug}/${category.slug}`, error);
       }
     }
@@ -393,14 +591,18 @@ export async function createStoreFromBlueprint(
   // candidates unconverted because broad supplier queries overlap and
   // re-categorize the same products across categories. Fill the remaining budget
   // from leftover ENRICHED candidates so a single run reaches the publish target.
-  if (importProducts && productsImported < IMPORT_BUDGET) {
+  if (importProducts && !providerFailed && productsImported < IMPORT_BUDGET) {
     try {
       const sweep = await importRelevantEnrichedCandidates({
         storeSlug: store.slug,
         remaining: IMPORT_BUDGET - productsImported,
         negativeKeywords,
+        intent,
+        providerKeys,
+        pricePositioning: input.pricePositioning,
       });
       productsImported += sweep.imported;
+      if (sweep.selectionPlan) catalogSelections.push(sweep.selectionPlan);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown sweep error";
       warnings.push(`Candidate sweep import failed: ${message}`);
@@ -408,15 +610,19 @@ export async function createStoreFromBlueprint(
   }
 
   if (autoPublishScored && productsImported > 0) {
-    // Preview stores are noindexed via launchStatus, so it is safe to publish
-    // every imported product that has real stored media. Quality gates already
-    // filtered junk at discovery (ENRICHED requires score >= 50 and >= 2 media).
-    // Products with zero images are left unpublished (handled below).
-    const publishResult = await prisma.product.updateMany({
-      where: { storeId: store.id, mediaStatus: "OK", isPublished: false },
-      data: { isPublished: true },
-    });
-    productsPublished += publishResult.count;
+    const drafts = await prisma.product.findMany({ where: { storeId: store.id } });
+    for (const product of drafts) {
+      const decision = decideCatalogVisibilityV3(
+        { niche: store.niche, launchStatus: "DRAFT" },
+        product
+      );
+      if (!decision.visible) continue;
+      await prisma.product.update({
+        where: { id: product.id },
+        data: { isPublished: true, noindex: true },
+      });
+      productsPublished += 1;
+    }
   }
 
   if (importProducts && productsImported > 0 && productsPublished < goal.minPublish) {
@@ -426,12 +632,60 @@ export async function createStoreFromBlueprint(
     );
   }
 
-  const faqBody = JSON.stringify(
-    blueprint.faqIdeas.slice(0, 8).map((question) => ({
-      question,
-      answer: blueprint.shippingDisclosure,
-    }))
+  const stagedProducts = await prisma.product.findMany({ where: { storeId: store.id } });
+  const visibilityDecisions = stagedProducts.map((product) =>
+    decideCatalogVisibilityV3({ niche: store.niche, launchStatus: "DRAFT" }, product)
   );
+  const productsRelevant = visibilityDecisions.filter(
+    (decision) => decision.evaluation?.relevance.state === "PASS"
+  ).length;
+  const productsPreviewVisible = visibilityDecisions.filter((decision) => decision.visible).length;
+  const generationResult = buildGenerationResultV1({
+    intent,
+    providerFailed,
+    minimumProducts: goal.minPublish,
+    relevantProducts: productsRelevant,
+    previewVisibleProducts: productsPreviewVisible,
+    importedProducts: productsImported,
+    importBudget: IMPORT_BUDGET,
+  });
+
+  await updateGenerationRun(options.generationRunId, {
+    queryAttempts: providerAttempts,
+    catalogSelections,
+    counts: {
+      discovered: productsDiscovered,
+      rejected: candidatesRejected,
+      relevant: productsRelevant,
+      imported: productsImported,
+      previewVisible: productsPreviewVisible,
+      importBudget: IMPORT_BUDGET,
+    },
+    reasonCodes: generationResult.reasonCodes,
+    phase: {
+      phase: "CATALOG_CONTRACT",
+      status: generationResult.previewReady ? "PASS" : "FAIL",
+      at: new Date().toISOString(),
+      detail: generationResult.status,
+    },
+  });
+
+  let guidesCreated = 0;
+  if (generationResult.previewReady) {
+  const faqBody = JSON.stringify([
+    {
+      question: "What is the current delivery estimate?",
+      answer: blueprint.shippingDisclosure,
+    },
+    {
+      question: "How do returns work?",
+      answer: policyInfo.returnPolicySummary,
+    },
+    {
+      question: "Where does fulfillment happen?",
+      answer: policyInfo.shippingOriginDisclosure,
+    },
+  ]);
 
   await prisma.contentPage.create({
     data: {
@@ -448,43 +702,41 @@ export async function createStoreFromBlueprint(
     },
   });
 
-  let guidesCreated = 0;
-  const guideTopic = blueprint.guideIdeas[0] ?? `How to choose ${input.niche}`;
-  const outline = await generateBuyingGuideOutline({
-    niche: input.niche,
-    topic: guideTopic,
-    audience: input.audience,
-  });
-
+  const visibleStagedProducts = stagedProducts.filter((_, index) => visibilityDecisions[index]?.visible);
+  const guideTitle = `How to compare ${input.niche} in this catalog`;
+  const guideExcerpt =
+    "A supplier-data checklist for reviewing the products currently visible in this preview.";
   const guideBody = [
-    `## ${outline.directAnswer}`,
+    "## Start with the recorded facts",
     "",
-    outline.sections
-      .map(
-        (section) =>
-          `## ${section.heading}\n\n${section.points.map((point) => `- ${point}`).join("\n")}`
-      )
-      .join("\n\n"),
+    `This noindex preview currently contains ${visibleStagedProducts.length} relevant products. Compare the supplier-provided specifications, option identity, price and delivery estimate on each product page. These products have not been represented as independently tested.`,
     "",
-    "## Shipping & returns",
+    "## Current catalog evidence",
+    "",
+    ...visibleStagedProducts.slice(0, 8).map(
+      (product) =>
+        `- ${product.title}: ${product.price.toFixed(2)} ${product.currency}; supplier delivery estimate ${product.shippingDaysMin}–${product.shippingDaysMax} business days.`
+    ),
+    "",
+    "## Shipping and returns",
     "",
     blueprint.shippingDisclosure,
     "",
-    blueprint.trustCopy,
+    policyInfo.returnPolicySummary,
   ].join("\n");
 
   await prisma.contentPage.create({
     data: {
       storeId: store.id,
-      slug: outline.slug || slugify(guideTopic),
+      slug: `compare-${slugify(input.niche)}`,
       type: "GUIDE",
-      title: outline.title,
-      excerpt: outline.directAnswer,
+      title: guideTitle,
+      excerpt: guideExcerpt,
       body: guideBody,
-      seoTitle: `${outline.title} | ${blueprint.brandName}`,
-      seoDescription: outline.directAnswer.slice(0, 155),
-      heroImageUrl: `/api/placeholder?label=${encodeURIComponent(blueprint.brandName)}&seed=guide`,
-      relatedProductIds: "[]",
+      seoTitle: `${guideTitle} | ${blueprint.brandName}`,
+      seoDescription: guideExcerpt.slice(0, 155),
+      heroImageUrl: visibleStagedProducts[0]?.imageUrl,
+      relatedProductIds: JSON.stringify(visibleStagedProducts.slice(0, 4).map((product) => product.id)),
       isPublished: true,
       noindex: true,
     },
@@ -503,15 +755,17 @@ export async function createStoreFromBlueprint(
       data: {
         storeId: store.id,
         slug: "featured",
-        title: "Featured picks",
-        description: `Top-scoring ${input.niche} products at ${blueprint.brandName}.`,
+        title: "Current catalog",
+        description: `${topProducts.length} currently visible ${input.niche} products at ${blueprint.brandName}.`,
         productIds: JSON.stringify(topProducts.map((product) => product.id)),
-        seoTitle: `Featured | ${blueprint.brandName}`,
+        seoTitle: `Current catalog | ${blueprint.brandName}`,
         seoDescription: blueprint.seoDescription.slice(0, 155),
       },
     });
   }
+  }
 
+  const completedSettings = completeStoreSettings(initialSettings, intent, generationResult);
   const importedProducts = await prisma.product.findMany({
     where: { storeId: store.id },
     orderBy: { productScore: "desc" },
@@ -520,9 +774,6 @@ export async function createStoreFromBlueprint(
       _count: { select: { images: true, variants: true } },
     },
   });
-  const manualCjFulfillment =
-    process.env.CJ_MANUAL_FULFILLMENT_ENABLED === "true" ||
-    process.env.MANUAL_FULFILLMENT_ENABLED === "true";
   const products: GeneratedProductSummary[] = importedProducts.map((product) => ({
     slug: product.slug,
     title: product.title,
@@ -531,12 +782,7 @@ export async function createStoreFromBlueprint(
     variantCount: product._count.variants,
     published: product.isPublished,
     noindex: product.noindex,
-    checkoutAvailable:
-      product.fulfillmentMode === "MOCK" ||
-      (product.fulfillmentMode === "DROPSHIP" &&
-        Boolean(product.externalId) &&
-        (product.providerKey === "mock" ||
-          (product.providerKey === "cj" && manualCjFulfillment))),
+    checkoutAvailable: isProductCheckoutAvailable(product),
   }));
 
   const rejectedCandidates = await prisma.productCandidate.findMany({
@@ -552,17 +798,30 @@ export async function createStoreFromBlueprint(
     )
   ).slice(0, 6);
 
-  return {
+  const result: CreateStoreFromBlueprintResult = {
     storeSlug: store.slug,
     storeName: store.name,
     previewUrl: getStorePreviewUrl(store.slug),
     previewQueryUrl: getStoreQueryPreviewUrl(store.slug),
     plannedDomain,
-    launchStatus: "PREVIEW",
+    launchStatus: generationResult.previewReady ? "PREVIEW" : "DRAFT",
+    runId: options.generationRunId,
+    generationStatus: generationResult.status,
+    previewReady: generationResult.previewReady,
+    manualReviewRequired: generationResult.manualReviewRequired,
+    productClass: intent.productClass,
+    intentConfidence: intent.confidence,
+    policyDecision: intent.policyDecision,
+    liveCommerceAllowed: generationResult.liveCommerceAllowed,
+    autonomousLaunchAllowed:
+      generationResult.status === "READY_FOR_PREVIEW" && intent.autonomousLaunchAllowed,
     categoriesCreated: categories.length,
     productsDiscovered,
     productsImported,
     productsPublished,
+    productsRelevant,
+    productsPreviewVisible,
+    importBudget: IMPORT_BUDGET,
     candidatesRejected,
     rejectionReasons,
     guidesCreated,
@@ -570,5 +829,34 @@ export async function createStoreFromBlueprint(
     importQueries: Array.from(importQueriesUsed).slice(0, 12),
     productsWithoutMedia: products.filter((product) => product.imageCount === 0).length,
     warnings,
+    providerAttempts,
+    foundationStatus: initialSettings.foundation?.audit.status ?? "REVIEW",
   };
+  // This is the only visibility boundary in the current wizard path. The
+  // store remains inactive while discovery, media, content and validation are
+  // progressively staged. Activation and the terminal audit record commit in
+  // one transaction, so a crash cannot expose a PREVIEW with a RUNNING audit.
+  await prisma.$transaction(async (tx) => {
+    await tx.store.update({
+      where: { id: store.id },
+      data: {
+        launchStatus: generationResult.previewReady ? "PREVIEW" : "DRAFT",
+        isActive: generationResult.previewReady,
+        settings: {
+          update: { settings: serializeStoreSettings(completedSettings) },
+        },
+      },
+    });
+    await completeGenerationRun({
+      runId: options.generationRunId,
+      status: generationResult.status,
+      result,
+      reasonCodes: generationResult.reasonCodes,
+      errorMessage:
+        generationResult.status === "PROVIDER_FAILED"
+          ? warnings.join(" ") || "Provider discovery failed."
+          : undefined,
+    }, tx);
+  });
+  return result;
 }

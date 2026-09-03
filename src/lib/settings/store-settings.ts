@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { storefrontPresentationV1Schema } from "@/lib/storefront/presentation";
+import { storeFoundationV1Schema } from "@/lib/storefront/store-foundation-contract";
 
 /**
  * Per-store settings.
@@ -14,13 +16,63 @@ import { z } from "zod";
  * auto-publishing imported products, and compliance disclosures.
  */
 
-export const HERO_VARIANTS = ["default", "video", "split"] as const;
+export const HERO_VARIANTS = [
+  "default",
+  "video",
+  "split",
+  "editorial",
+  "showcase",
+  "minimal",
+] as const;
 export type HeroVariant = (typeof HERO_VARIANTS)[number];
 
 export const HERO_VARIANT_OPTIONS = HERO_VARIANTS.map((value) => ({
   value,
   label: value,
 }));
+
+export const FOUNDATION_STORE_CREATION_VERSION =
+  "foundation-store-creation.v1" as const;
+
+const generatorTerminalStatusSchema = z.enum([
+  "RUNNING",
+  "READY_FOR_PREVIEW",
+  "READY_FOR_INTERNAL_PREVIEW_MANUAL_REVIEW",
+  "POLICY_BLOCKED",
+  "INSUFFICIENT_RELEVANT_PRODUCTS",
+  "INSUFFICIENT_INTENT_EVIDENCE",
+  "PROVIDER_FAILED",
+  "VALIDATION_FAILED",
+  "CANCELLED",
+]);
+
+const productClassProfileSchema = z.object({
+  version: z.literal("product-class-profile.v1"),
+  source: z.enum(["STATIC_ONTOLOGY", "RUNTIME_PROVISIONAL"]),
+  serverOwned: z.literal(true),
+  requiresAdminConfirmation: z.boolean(),
+  productClass: z.string().min(1),
+  normalizedProductType: z.string().min(1),
+  headNoun: z.string().min(1),
+  classConcepts: z.array(z.string().min(1)).min(1),
+  qualifiers: z.array(z.string()),
+  excludedClasses: z.array(
+    z.object({
+      className: z.string().min(1),
+      concepts: z.array(z.string().min(1)),
+    })
+  ),
+  policyDecision: z.enum(["ALLOW", "MANUAL_REVIEW_REQUIRED", "BLOCK"]),
+  riskFlags: z.array(z.string()),
+  category: z.object({
+    slug: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string(),
+  }),
+  liveCommerceAllowed: z.boolean(),
+  autonomousLaunchAllowed: z.boolean(),
+  profileHash: z.string().regex(/^[a-f0-9]{64}$/),
+});
 
 export const storeSettingsSchema = z.object({
   seo: z
@@ -40,6 +92,25 @@ export const storeSettingsSchema = z.object({
       trustBarItems: z.array(z.string()).default([]),
     })
     .default({}),
+  presentation: storefrontPresentationV1Schema
+    .nullable()
+    .catch(null)
+    .default(null),
+  foundation: storeFoundationV1Schema
+    .nullable()
+    .catch(null)
+    .default(null),
+  foundationCreation: z
+    .object({
+      version: z.literal(FOUNDATION_STORE_CREATION_VERSION),
+      idempotencyKey: z
+        .string()
+        .regex(/^foundation-[a-z0-9][a-z0-9_-]{7,79}$/),
+      inputFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
   monetization: z
     .object({
       targetMarginPercent: z.number().min(0).max(95).default(35),
@@ -82,6 +153,37 @@ export const storeSettingsSchema = z.object({
       cookiePolicyUrl: z.string().default(""),
     })
     .default({}),
+  generation: z
+    .object({
+      contractVersion: z.string(),
+      runId: z.string(),
+      generatorVersion: z.string(),
+      intentVersion: z.string(),
+      ontologyVersion: z.string(),
+      evaluatorVersion: z.string(),
+      status: generatorTerminalStatusSchema,
+      productClass: z.string().nullable(),
+      intentConfidence: z.number().min(0).max(1),
+      policyDecision: z.enum(["ALLOW", "MANUAL_REVIEW_REQUIRED", "BLOCK"]),
+      classProfile: productClassProfileSchema.nullable().optional(),
+      planDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
+      minimumProducts: z.number().int().nonnegative(),
+      relevantProducts: z.number().int().nonnegative(),
+      previewVisibleProducts: z.number().int().nonnegative(),
+      importedProducts: z.number().int().nonnegative(),
+      importBudget: z.number().int().nonnegative(),
+      manualReviewRequired: z.boolean(),
+      manualReviewStatus: z.enum(["NOT_REQUIRED", "PENDING", "APPROVED", "REJECTED"]),
+      humanLaunchApproved: z.boolean(),
+      humanLaunchApprovedBy: z.string().nullable(),
+      humanLaunchApprovedAt: z.string().nullable(),
+      liveCommerceAllowed: z.boolean(),
+      autonomousLaunchAllowed: z.boolean(),
+      completedAt: z.string().nullable(),
+      reasonCodes: z.array(z.string()),
+    })
+    .nullable()
+    .default(null),
 });
 
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
@@ -106,4 +208,22 @@ export function parseStoreSettings(raw: string | null | undefined): StoreSetting
 
 export function serializeStoreSettings(settings: StoreSettings): string {
   return JSON.stringify(settings);
+}
+
+/**
+ * Normal store fields are merchant-editable, while these versioned artifacts
+ * are owned by their dedicated engines. Preserve them exactly across the
+ * broad settings form so an unrelated save cannot erase audit evidence.
+ */
+export function preserveVersionedStoreArtifacts(
+  merchantSettings: StoreSettings,
+  currentSettings: StoreSettings
+): StoreSettings {
+  return {
+    ...merchantSettings,
+    presentation: currentSettings.presentation,
+    foundation: currentSettings.foundation,
+    foundationCreation: currentSettings.foundationCreation,
+    generation: currentSettings.generation,
+  };
 }

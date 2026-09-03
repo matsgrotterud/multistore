@@ -75,8 +75,8 @@ export function ProductQuiz({
       <div>
         <h2 className="text-2xl font-bold text-ink">Your matches</h2>
         <p className="mt-2 text-sm text-ink/70">
-          Ranked by how well each product fits your answers and our internal
-          product score. No sponsorships — just the best fit from our catalog.
+          Ranked by how well each product fits your answers. Ties keep the
+          catalog order; results are a sorting aid, not a tested product recommendation.
         </p>
 
         {recommendations.length === 0 ? (

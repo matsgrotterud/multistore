@@ -5,7 +5,9 @@ import { requireAdmin } from "@/lib/admin/auth";
 import { parseStoreSettings } from "@/lib/settings/store-settings";
 import { getStorePreviewUrl } from "@/lib/stores/preview-url";
 import { GoLiveButton } from "@/components/admin/GoLiveButton";
+import { GenerationObservability } from "@/components/admin/GenerationObservability";
 import { StoreEditForm } from "@/components/admin/StoreEditForm";
+import { getGenerationLiveBlockers } from "@/lib/admin/generator-observability";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,12 @@ export default async function StoreEditPage({
   });
   if (!store) notFound();
 
+  const settings = parseStoreSettings(store.settings?.settings);
+  const liveBlockers = getGenerationLiveBlockers({
+    generation: settings.generation,
+    launchStatus: store.launchStatus,
+    plannedDomain: store.plannedDomain,
+  });
   return (
     <div>
       <nav aria-label="Breadcrumb" className="mb-2 text-sm text-slate-500">
@@ -51,30 +59,63 @@ export default async function StoreEditPage({
         </div>
         <div className="flex gap-2">
           <Link
+            href={`/admin/stores/${store.slug}/foundation`}
+            className="rounded-md bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-800"
+          >
+            Foundation studio
+          </Link>
+          <Link
+            href={`/admin/stores/${store.slug}/design`}
+            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          >
+            Design storefront
+          </Link>
+          <Link
             href={`/admin/stores/${store.slug}/products`}
             className="rounded-md bg-white px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             Products
           </Link>
           <Link
-            href={`/s/${store.slug}`}
+            href="/admin/experiments"
             className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-slate-200 hover:bg-slate-50"
           >
-            View storefront
+            Growth queue
           </Link>
+          {store.isActive && (
+            <Link
+              href={`/s/${store.slug}`}
+              className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-slate-200 hover:bg-slate-50"
+            >
+              View storefront
+            </Link>
+          )}
         </div>
       </div>
+
+      <GenerationObservability
+        generation={settings.generation}
+        launchStatus={store.launchStatus}
+        liveBlockers={liveBlockers}
+      />
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <GoLiveButton slug={store.slug} launchStatus={store.launchStatus} />
         <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
           <p className="font-semibold text-slate-900">Preview URL</p>
-          <a
-            href={getStorePreviewUrl(store.slug)}
-            className="mt-1 block break-all font-mono text-blue-700 underline"
-          >
-            {getStorePreviewUrl(store.slug)}
-          </a>
+          {store.isActive ? (
+            <a
+              href={getStorePreviewUrl(store.slug)}
+              className="mt-1 block break-all font-mono text-blue-700 underline"
+            >
+              {getStorePreviewUrl(store.slug)}
+            </a>
+          ) : (
+            <p className="mt-1 text-slate-500">
+              Public preview blocked while this tenant is inactive. Use Foundation
+              Studio for the admin-only preview.
+            </p>
+          )}
           {store.plannedDomain && (
             <p className="mt-2">
               Planned domain: <span className="font-mono">{store.plannedDomain}</span>
@@ -105,11 +146,12 @@ export default async function StoreEditPage({
           returnPolicySummary: store.returnPolicySummary,
           privacyPolicy: store.privacyPolicy,
           termsOfSale: store.termsOfSale,
+          launchStatus: store.launchStatus,
           isActive: store.isActive,
         }}
         theme={store.theme ?? DEFAULT_THEME}
         domains={store.domains.map((domain) => domain.hostname)}
-        settings={parseStoreSettings(store.settings?.settings)}
+        settings={settings}
       />
     </div>
   );

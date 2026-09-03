@@ -1,7 +1,11 @@
 "use client";
 
 import type { AnalyticsEventName } from "@/lib/analytics/events";
-import { getCookieConsent } from "@/lib/consent";
+import {
+  COOKIE_CONSENT_POLICY_VERSION,
+  COOKIE_CONSENT_VERSION,
+  getCookieConsent,
+} from "@/lib/consent";
 
 /**
  * Client-side tracking. Events are logged to the console in development and
@@ -33,22 +37,24 @@ export function track(
 ): void {
   if (typeof window === "undefined") return;
 
+  const consent = getCookieConsent();
+  if (consent?.analytics !== true) {
+    // Do not even create a tab session identifier before explicit consent.
+    return;
+  }
+
   const event = {
     storeSlug,
     eventName,
     sessionId: getSessionId(),
+    consentVersion: COOKIE_CONSENT_VERSION,
+    consentPolicyVersion: COOKIE_CONSENT_POLICY_VERSION,
     payload,
   };
 
   if (process.env.NODE_ENV === "development") {
     // eslint-disable-next-line no-console
     console.info("[analytics]", eventName, event);
-  }
-
-  const consent = getCookieConsent();
-  if (consent?.analytics !== true) {
-    // Visitor declined (or hasn't decided): keep the event local only.
-    return;
   }
 
   const body = JSON.stringify(event);

@@ -9,34 +9,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  hydrateCartItems,
+  lineIdFor,
+  type CartItem,
+  type CartItemInput,
+} from "@/lib/cart/cart-items";
+
+export type { CartItem, CartItemInput } from "@/lib/cart/cart-items";
 
 /**
  * Local cart state, persisted per store in localStorage. Prices shown in the
  * cart are display values; the checkout server action re-reads authoritative
  * prices from the database before "charging".
  */
-
-export interface CartItem {
-  lineId: string;
-  productId: string;
-  variantId?: string;
-  slug: string;
-  categorySlug?: string | null;
-  title: string;
-  variantTitle?: string;
-  optionSummary?: string;
-  sku?: string | null;
-  externalVariantId?: string | null;
-  price: number;
-  currency: string;
-  imageUrl: string;
-  imageAlt: string;
-  shippingDaysMin: number;
-  shippingDaysMax: number;
-  quantity: number;
-}
-
-export type CartItemInput = Omit<CartItem, "lineId" | "quantity">;
 
 interface CartContextValue {
   storeSlug: string;
@@ -59,39 +45,6 @@ interface CartContextValue {
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
-
-function lineIdFor(productId: string, variantId?: string): string {
-  return `${productId}:${variantId ?? "default"}`;
-}
-
-function hydrateCartItems(rawItems: unknown): CartItem[] {
-  if (!Array.isArray(rawItems)) return [];
-  return rawItems
-    .filter((entry): entry is Partial<CartItem> => Boolean(entry) && typeof entry === "object")
-    .filter((entry) => typeof entry.productId === "string" && typeof entry.title === "string")
-    .map((entry) => ({
-      lineId: typeof entry.lineId === "string" ? entry.lineId : lineIdFor(entry.productId!, entry.variantId),
-      productId: entry.productId!,
-      variantId: entry.variantId,
-      slug: entry.slug ?? "",
-      categorySlug: typeof entry.categorySlug === "string" ? entry.categorySlug : null,
-      title: entry.title!,
-      variantTitle: entry.variantTitle,
-      optionSummary: entry.optionSummary,
-      sku: entry.sku,
-      externalVariantId: entry.externalVariantId,
-      price: typeof entry.price === "number" ? entry.price : 0,
-      currency: entry.currency ?? "USD",
-      imageUrl: entry.imageUrl ?? "/api/placeholder?label=Product",
-      imageAlt: entry.imageAlt ?? entry.title!,
-      shippingDaysMin: typeof entry.shippingDaysMin === "number" ? entry.shippingDaysMin : 7,
-      shippingDaysMax: typeof entry.shippingDaysMax === "number" ? entry.shippingDaysMax : 18,
-      quantity:
-        typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
-          ? Math.max(1, Math.min(entry.quantity, 99))
-          : 1,
-    }));
-}
 
 export function CartProvider({
   storeSlug,

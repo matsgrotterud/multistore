@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Category, Store } from "@prisma/client";
 import { categoryHref, storefrontHref } from "@/lib/stores/storefront-links";
+import { CookieSettingsButton } from "@/components/CookieSettingsButton";
 
 export function StoreFooter({
   store,
@@ -11,7 +12,7 @@ export function StoreFooter({
 }) {
   const year = new Date().getFullYear();
   return (
-    <footer className="mt-16 border-t border-ink/10 bg-secondary text-white">
+    <footer className="storefront-footer mt-16 border-t border-ink/10 bg-secondary text-white">
       <div className="mx-auto grid max-w-site gap-10 px-4 py-12 sm:px-6 md:grid-cols-4">
         <div>
           <p className="font-heading text-lg font-extrabold">{store.logoText}</p>
@@ -77,6 +78,9 @@ export function StoreFooter({
               <Link href={storefrontHref(store, "/policies/terms")} className="text-white/80 hover:text-white hover:underline">
                 Terms of sale
               </Link>
+            </li>
+            <li>
+              <CookieSettingsButton />
             </li>
           </ul>
         </nav>

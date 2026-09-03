@@ -12,6 +12,7 @@ import type { StoreWithTheme } from "@/lib/tenant/resolve-tenant";
 export async function buildStoreSitemap(
   store: StoreWithTheme
 ): Promise<MetadataRoute.Sitemap> {
+  if (store.launchStatus !== "LIVE") return [];
   const [categories, products, guides] = await Promise.all([
     prisma.category.findMany({
       where: { storeId: store.id },

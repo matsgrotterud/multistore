@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { ingestProductMedia } from "@/lib/media/ingest-product-media";
+import { ingestRequiredCandidateMedia } from "@/lib/catalog/candidate-media-ingestion";
 import { upsertCandidateFromResult } from "@/lib/catalog/candidate-service";
 import { getCommerceProvider } from "@/lib/suppliers/providers/registry";
 
@@ -18,14 +18,25 @@ export async function enrichCandidate(candidateId: string): Promise<void> {
     result: details,
     providerReliability: 0.75,
   });
-  if (details.media.length > 0) {
-    await ingestProductMedia({
+  if (updated.status === "ENRICHING") {
+    const mediaResult = await ingestRequiredCandidateMedia({
       candidateId: updated.id,
       providerKey: provider.key,
       externalId: details.externalId,
       title: details.title,
       media: details.media,
     });
+    if (
+      !mediaResult.mediaReady ||
+      !["ENRICHED", "APPROVED", "IMPORTED"].includes(
+        mediaResult.finalStatus ?? ""
+      )
+    ) {
+      throw new Error(
+        [mediaResult.rejectionReason, ...mediaResult.diagnostics]
+          .filter(Boolean)
+          .join("; ") || "Candidate media enrichment did not reach a ready state."
+      );
+    }
   }
 }
-

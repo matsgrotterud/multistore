@@ -90,12 +90,18 @@ export default async function AdminStoresPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-3 text-sm font-medium">
+                  <div className="flex flex-wrap items-center gap-3 text-sm font-medium">
                     <Link
                       href={`/admin/stores/${store.slug}/edit`}
                       className="text-blue-700 underline"
                     >
                       Edit
+                    </Link>
+                    <Link
+                      href={`/admin/stores/${store.slug}/foundation`}
+                      className="text-violet-700 underline"
+                    >
+                      Foundation
                     </Link>
                     <Link
                       href={`/admin/stores/${store.slug}/products`}
@@ -104,11 +110,23 @@ export default async function AdminStoresPage() {
                       Products
                     </Link>
                     <Link
-                      href={getStorePreviewUrl(store.slug)}
-                      className="text-slate-500 underline"
+                      href={`/admin/stores/${store.slug}/experience?fixture=drones`}
+                      className="text-cyan-700 underline"
                     >
-                      Preview
+                      Experience V2
                     </Link>
+                    {store.isActive ? (
+                      <Link
+                        href={getStorePreviewUrl(store.slug)}
+                        className="text-slate-500 underline"
+                      >
+                        Preview
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-slate-400" title="Inactive DRAFT stores have no public preview">
+                        Public preview blocked
+                      </span>
+                    )}
                   </div>
                 </td>
               </tr>

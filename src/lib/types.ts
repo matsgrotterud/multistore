@@ -9,6 +9,7 @@ export const STOCK_STATUSES = [
   "LOW_STOCK",
   "OUT_OF_STOCK",
   "PREORDER",
+  "UNKNOWN",
 ] as const;
 export type StockStatus = (typeof STOCK_STATUSES)[number];
 
@@ -36,6 +37,7 @@ export const STOCK_STATUS_LABELS: Record<StockStatus, string> = {
   LOW_STOCK: "Low stock",
   OUT_OF_STOCK: "Out of stock",
   PREORDER: "Pre-order",
+  UNKNOWN: "Availability not verified",
 };
 
 export function isStockStatus(value: string): value is StockStatus {
@@ -47,8 +49,6 @@ export interface ClientProductVariant {
   title: string;
   optionSummary: string;
   options: Record<string, string>;
-  sku: string | null;
-  externalVariantId: string | null;
   price: number | null;
   compareAtPrice: number | null;
   stockStatus: string;
@@ -74,10 +74,8 @@ export interface ClientProduct {
   shippingDaysMax: number;
   countryOfOrigin: string | null;
   useCases: string[];
-  productScore: number;
   fulfillmentMode: string;
   affiliateUrl: string | null;
-  providerKey: string | null;
   checkoutAvailable: boolean;
   hasVariants: boolean;
   variants: ClientProductVariant[];

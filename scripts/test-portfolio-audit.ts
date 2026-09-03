@@ -13,8 +13,13 @@ test("the current repository cannot be reported as scale-ready", () => {
   assert.equal(byKey.get("commerce.preview-checkout-blocked")?.state, "PASS");
   assert.equal(byKey.get("commerce.mock-isolated-from-suppliers")?.state, "PASS");
   assert.equal(byKey.get("commerce.single-fulfillment-route")?.state, "PASS");
-  assert.equal(byKey.get("commerce.fulfillment-idempotent")?.state, "FAIL");
+  assert.equal(byKey.get("commerce.fulfillment-idempotent")?.state, "PASS");
+  assert.equal(byKey.get("runtime.local-smoke")?.state, "UNKNOWN");
+  assert.equal(byKey.get("tenant.single-domain-authority")?.state, "PASS");
+  assert.equal(byKey.get("commerce.refunds-operable")?.state, "FAIL");
   assert.equal(byKey.get("product.compliance-dossier")?.state, "FAIL");
+  assert.equal(byKey.get("product.recall-operable")?.state, "FAIL");
+  assert.equal(byKey.get("security.production-auth")?.state, "FAIL");
   assert.equal(byKey.get("ai.provider-non-mock")?.state, "FAIL");
 });
 

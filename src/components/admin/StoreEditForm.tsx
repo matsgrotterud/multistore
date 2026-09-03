@@ -39,6 +39,7 @@ export interface StoreEditFormProps {
     returnPolicySummary: string;
     privacyPolicy: string;
     termsOfSale: string;
+    launchStatus: string;
     isActive: boolean;
   };
   theme: {
@@ -147,29 +148,54 @@ export function StoreEditForm({ slug, store, theme, domains, settings }: StoreEd
         description="Canonical URLs always use the primary domain — never the /s/ path."
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField
-            name="primaryDomain"
-            label="Primary domain"
-            defaultValue={store.primaryDomain}
-            required
-            hint="e.g. dronehub.example"
-          />
+          {store.launchStatus === "DRAFT" ? (
+            <Field
+              label="Primary domain"
+              htmlFor="primaryDomain"
+              hint="Locked preview identity; no Domain routing row is created for a foundation DRAFT."
+            >
+              <input
+                id="primaryDomain"
+                name="primaryDomain"
+                value={store.primaryDomain}
+                readOnly
+                className={`${inputClass} bg-slate-100 font-mono text-slate-500`}
+              />
+            </Field>
+          ) : (
+            <TextField
+              name="primaryDomain"
+              label="Primary domain"
+              defaultValue={store.primaryDomain}
+              required
+              hint="e.g. dronehub.example"
+            />
+          )}
           <TextField name="locale" label="Locale" defaultValue={store.locale} required hint="e.g. en-US" />
           <TextField name="currency" label="Currency" defaultValue={store.currency} required hint="ISO 4217, e.g. USD" />
         </div>
-        <TextareaField
-          name="domains"
-          label="Additional domains"
-          defaultValue={domains.filter((host) => host !== store.primaryDomain).join("\n")}
-          rows={3}
-          hint="One hostname per line. The primary domain is added automatically."
-        />
-        <CheckboxField
-          name="isActive"
-          label="Store is active"
-          defaultChecked={store.isActive}
-          hint="Inactive stores stop resolving on their domains and disappear from sitemaps."
-        />
+        {store.launchStatus === "DRAFT" ? (
+          <p className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm leading-6 text-violet-900">
+            Foundation DRAFT is forced inactive. Additional domains and routing
+            activation are intentionally unavailable here.
+          </p>
+        ) : (
+          <>
+            <TextareaField
+              name="domains"
+              label="Additional domains"
+              defaultValue={domains.filter((host) => host !== store.primaryDomain).join("\n")}
+              rows={3}
+              hint="One hostname per line. The primary domain is added automatically."
+            />
+            <CheckboxField
+              name="isActive"
+              label="Store is active"
+              defaultChecked={store.isActive}
+              hint="Inactive stores stop resolving on their domains and disappear from sitemaps."
+            />
+          </>
+        )}
       </FormSection>
 
       <FormSection title="Support & shipping">

@@ -11,7 +11,6 @@ import {
   type ProviderCapabilities,
   type ProviderHealth,
   type SupplierMedia,
-  validateSearchResults,
 } from "@/lib/suppliers/providers/types";
 
 export class AliExpressProvider implements CommerceProvider {
@@ -20,17 +19,17 @@ export class AliExpressProvider implements CommerceProvider {
   defaultFulfillmentMode = "AFFILIATE" as const;
 
   get capabilities(): ProviderCapabilities {
-    const configured = hasAliExpressCredentials();
-    const checkout = process.env.ALIEXPRESS_DROPSHIP_ENABLED === "true";
     return {
-      search: configured,
-      details: configured,
-      images: configured,
+      // Signing helpers exist, but product response mapping and transport are
+      // not implemented. Do not advertise scaffolded code as a live adapter.
+      search: false,
+      details: false,
+      images: false,
       video: false,
-      pricing: configured,
-      inventory: configured,
-      checkout,
-      tracking: checkout,
+      pricing: false,
+      inventory: false,
+      checkout: false,
+      tracking: false,
       returns: false,
       affiliateLinks: Boolean(process.env.ALIEXPRESS_TRACKING_ID),
     };
@@ -43,7 +42,7 @@ export class AliExpressProvider implements CommerceProvider {
         key: this.key,
         name: this.name,
         status: "NOT_CONFIGURED",
-        message: "AliExpress credentials are missing. Fixture mode is available for pipeline testing only.",
+        message: "AliExpress credentials are missing and the live product transport is not implemented.",
         missingEnv: missing,
         capabilities: { ...this.capabilities, search: false, details: false, images: false, pricing: false, inventory: false },
         defaultFulfillmentMode: this.defaultFulfillmentMode,
@@ -55,7 +54,7 @@ export class AliExpressProvider implements CommerceProvider {
         key: this.key,
         name: this.name,
         status: "DEGRADED",
-        message: "AliExpress credentials exist, but endpoint/method env vars are not configured. Fixture mode remains active.",
+        message: "AliExpress credentials exist, but endpoint/method configuration and live product mapping are incomplete.",
         capabilities: this.capabilities,
         defaultFulfillmentMode: this.defaultFulfillmentMode,
       };
@@ -64,27 +63,28 @@ export class AliExpressProvider implements CommerceProvider {
     return {
       key: this.key,
       name: this.name,
-      status: "OK",
-      message: "AliExpress API configuration is present.",
+      status: "DEGRADED",
+      message: "AliExpress configuration is present, but live product mapping is not implemented.",
       capabilities: this.capabilities,
       defaultFulfillmentMode: this.defaultFulfillmentMode,
     };
   }
 
   async searchProducts(input: ProductSearchInput): Promise<ProductSearchResult[]> {
-    if (!hasAliExpressCredentials() || !process.env.ALIEXPRESS_API_ENDPOINT || !process.env.ALIEXPRESS_SEARCH_METHOD) {
-      return validateSearchResults(this.key, aliExpressFixtures(input.query, input.limit ?? 12));
-    }
-
-    throw new Error(
-      "AliExpress signed API transport is scaffolded, but product method mapping must be configured before live imports."
-    );
+    void input;
+    const missing = [
+      "ALIEXPRESS_APP_KEY",
+      "ALIEXPRESS_APP_SECRET",
+      "ALIEXPRESS_API_ENDPOINT",
+      "ALIEXPRESS_SEARCH_METHOD",
+    ].filter((key) => !process.env[key]);
+    if (missing.length > 0) throw new ProviderAuthMissingError(this.key, missing);
+    throw new UnsupportedCapabilityError(this.key, "search");
   }
 
   async getProductDetails(input: ProductDetailsInput): Promise<ProductSearchResult> {
-    const match = aliExpressFixtures("", 12).find((item) => item.externalId === input.externalId);
-    if (!match) throw new ProviderAuthMissingError(this.key, ["ALIEXPRESS_PRODUCT_METHOD"]);
-    return validateSearchResults(this.key, [match])[0];
+    void input;
+    throw new UnsupportedCapabilityError(this.key, "details");
   }
 
   async getProductMedia(input: ProductMediaInput): Promise<SupplierMedia[]> {
@@ -113,54 +113,6 @@ export function signAliExpressParams(
     .update(canonical)
     .digest("hex")
     .toUpperCase();
-}
-
-function hasAliExpressCredentials(): boolean {
-  return Boolean(process.env.ALIEXPRESS_APP_KEY && process.env.ALIEXPRESS_APP_SECRET);
-}
-
-function aliExpressFixtures(query: string, limit: number): Omit<ProductSearchResult, "providerKey">[] {
-  const items: Omit<ProductSearchResult, "providerKey">[] = [
-    fixture("ae-mock-cable-organizer", "Magnetic Cable Organizer Set", "Desk cable clips and magnetic cable anchors for cleaner workstations."),
-    fixture("ae-mock-bike-light", "USB Rechargeable Bike Light Kit", "Front and rear LED safety lights with weather-resistant housings."),
-    fixture("ae-mock-kitchen-scale", "Compact Digital Kitchen Scale", "Slim kitchen scale with tare function and stainless weighing surface."),
-  ];
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const filtered = terms.length
-    ? items.filter((item) => terms.some((term) => item.title.toLowerCase().includes(term) || item.description?.toLowerCase().includes(term)))
-    : items;
-  return filtered.slice(0, limit);
-}
-
-function fixture(externalId: string, title: string, description: string): Omit<ProductSearchResult, "providerKey"> {
-  return {
-    externalId,
-    sourceUrl: `https://www.aliexpress.com/item/${externalId}.html`,
-    affiliateUrl: `https://www.aliexpress.com/item/${externalId}.html?aff_fcid=mock`,
-    title,
-    description,
-    brand: "AliExpress supplier",
-    price: 29,
-    currency: "USD",
-    supplierCost: 9,
-    shippingCost: 3.5,
-    stockStatus: "IN_STOCK",
-    shippingDaysMin: 8,
-    shippingDaysMax: 16,
-    countryOfOrigin: "CN",
-    sku: externalId.toUpperCase(),
-    specs: [{ label: "Mode", value: "AliExpress fixture" }],
-    variants: [],
-    media: [0, 1, 2].map((index) => ({
-      url: `https://placehold.co/1000x1000/png?text=${encodeURIComponent(`${title} ${index + 1}`)}`,
-      mediaType: "IMAGE" as const,
-      alt: `${title} image ${index + 1}`,
-      sortOrder: index,
-    })),
-    signals: { source: "aliexpress_fixture", fixtureMode: true },
-    risk: {},
-    fulfillmentMode: "AFFILIATE",
-  };
 }
 
 export const aliexpressProvider = new AliExpressProvider();

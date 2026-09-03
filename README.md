@@ -49,17 +49,88 @@ The app works locally with `MEDIA_STORAGE_PROVIDER=local`, `MOCK_CHECKOUT=true` 
 | Need | Env vars |
 | --- | --- |
 | Database | `DATABASE_URL`, `DIRECT_URL` |
-| Admin | `ADMIN_PASSWORD` |
+| Admin | `ADMIN_PASSWORD` (12+ characters), plus `ADMIN_SESSION_SECRET` (32+ characters in production) |
 | Cron protection | `CRON_SECRET` |
 | Runtime object storage | `BLOB_READ_WRITE_TOKEN`, `MEDIA_STORAGE_PROVIDER=vercel-blob` |
-| Stripe checkout | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_CAPTURE_MODE=manual` |
-| CJdropshipping | `CJ_ENABLED`, `CJ_API_KEY`, optional `CJ_ACCESS_TOKEN`/`CJ_REFRESH_TOKEN`; order API also needs `CJ_ORDER_API_ENABLED`, `CJ_ORDER_PAY_TYPE`, `CJ_LOGISTIC_NAME`, `CJ_FROM_COUNTRY_CODE`; Phase 1 manual ordering can use `CJ_MANUAL_FULFILLMENT_ENABLED=true` |
+| Stripe checkout | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKOUT_FINALIZATION_SECRET` (32+ characters), `PAYMENT_CAPTURE_MODE=manual` |
+| CJdropshipping | `CJ_ENABLED`, `CJ_API_KEY`, optional `CJ_ACCESS_TOKEN`/`CJ_REFRESH_TOKEN`; live order API also needs `CJ_ORDER_API_ENABLED=true`, `CJ_ORDER_PAY_TYPE=2`, `CJ_LOGISTIC_NAME`, `CJ_FROM_COUNTRY_CODE`; Phase 1 manual ordering can use `CJ_MANUAL_FULFILLMENT_ENABLED=true` |
 | Doba | `DOBA_ENABLED`, `DOBA_ACCESS_KEY`, `DOBA_APP_KEY`, `DOBA_APP_SECRET` |
 | eBay Browse API | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, optional `EBAY_EPN_CAMPAIGN_ID` |
 | AliExpress affiliate/open platform | `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID` |
 | AI copy later | `OPENAI_API_KEY`, `AI_PROVIDER` |
 
 Other provider env vars are scaffolded in `.env.example` for Temu, Amazon, Wish and Alibaba. They stay `NOT_CONFIGURED` until authorized credentials are present.
+
+LIVE checkout, supplier routing and the Google feed also require both
+`lastSupplierSyncAt` and the persisted V3 product evaluation to be no older
+than `CATALOG_FRESHNESS_MAX_AGE_HOURS` (48 hours by default, bounded to 1–168).
+`REFRESH_EXISTING` now performs a provider-backed **shadow refresh**. It records
+versioned, normalized supplier snapshots and immutable-while-retained
+`CatalogSupplierObservation` and proposal-fact records. Parent-retention deletes
+may still cascade by design. The scan cursor,
+current per-product state, evidence and exact lease-fenced job transition are
+committed atomically. Bounded `CatalogSyncRun.summaryJson` remains diagnostics
+only. Shadow refresh deliberately does not mutate Product, variants, media,
+quality status or `lastSupplierSyncAt`. The first observation is a baseline, and
+subsequent observations can become `NO_CHANGE`, `PROPOSED`, `REVIEW_REQUIRED` or
+`SOURCE_UNAVAILABLE`. A separately reviewed atomic apply/re-evaluation step is
+still required before this evidence can reopen LIVE commerce.
+
+Each successful observation also compares like-for-like operational storefront
+facts with the supplier snapshot: route/source, authoritative stock, delivery
+window, identity fields, variant identities and supplier-media sources. Retail
+price and normalized cost are intentionally excluded until the pricing engine
+can recompute FX, margin and shipping policy from the same snapshot. Provider
+health canaries are coalesced for 60 seconds inside one worker process; product
+detail reads are never skipped by that cache.
+
+The additive PostgreSQL DDL for this durable read model lives at
+`prisma/schema-changes/20260831_catalog_autopilot_v1.sql`. The expansion is an
+explicit deploy step: it is intentionally absent from `build`, `postinstall` and
+application startup. The admin history is paginated from durable observations
+and manual observations are queued idempotently; the admin action never calls a
+supplier inline and never applies a proposal.
+
+### Catalog Autopilot expand-before-code gate
+
+Run these steps from the code revision whose Prisma schema and DDL will be
+deployed. The default commands use the already-exported `DATABASE_URL`; the
+`:local` variants explicitly load `.env.local`. Neither verify command writes to
+the database, and no command prints a connection URL or credentials.
+
+1. Inspect the exact target before deploying application code:
+
+   ```bash
+   pnpm run db:catalog-autopilot:verify
+   # Local target instead:
+   pnpm run db:catalog-autopilot:verify:local
+   ```
+
+   Copy the complete `sha256:...` target fingerprint from the output. `ABSENT`
+   is the expected state before the first expansion. `PARTIAL` means stop and
+   reconcile the schema manually; the apply command will refuse it.
+
+2. Expand only that exact target by pasting the full fingerprint into the
+   matching command:
+
+   ```bash
+   pnpm run db:catalog-autopilot:apply -- --confirm-target=sha256:<full-64-hex-digest>
+   # Local target instead:
+   pnpm run db:catalog-autopilot:apply:local -- --confirm-target=sha256:<full-64-hex-digest>
+   ```
+
+   A missing or different fingerprint is refused before connecting. Apply takes
+   a database advisory lock, refuses any partial installation, runs only the
+   canonical additive transaction, and verifies it afterward. If the full
+   contract is already installed, apply is an idempotent no-op.
+
+3. Run the same verify command again and require `Schema status: COMPLETE`.
+   Only then deploy the application code that reads the new models.
+
+For an explicitly exported unpooled connection, append
+`-- --url-env=DIRECT_URL` to both verify and apply, and keep the selected env key
+identical across both commands. The gate checks all five tables, critical
+columns, contract checks, scope/immutability triggers and required indexes.
 
 ## Architecture
 
@@ -106,6 +177,8 @@ Current providers:
 | `aliexpress` | Signing scaffold plus fixture mode; no checkout unless explicitly enabled later |
 | `temu`, `amazon`, `wish`, `alibaba` | Health/capability scaffolds; no checkout claims |
 
+CJ API traffic is serialized and paced at one transport boundary inside each worker process. Every actual CJ HTTP start uses that boundary, including token refresh, primary/fallback authentication and API calls; high-level provider calls are not double-gated. Catalog operations use one abort signal and bounded deadline across authentication, queueing and API fetches. This is not a distributed/account-wide limiter: multiple serverless or Node instances sharing one CJ credential still require a dedicated supplier worker or API-key-scoped distributed rate limiter before horizontal production scale.
+
 The project intentionally does not use captcha bypasses, login-wall bypasses, marketplace scraping or reader proxies for AliExpress, eBay, Temu, Amazon, Wish or Alibaba. Use official APIs, affiliate APIs, authorized feeds, supplier-provided feeds or user-provided URLs where fetching is allowed.
 
 ## Media Ingestion
@@ -127,7 +200,10 @@ Production should use Vercel Blob with `BLOB_READ_WRITE_TOKEN`. `fetchMedia` onl
 Vercel cron is configured in `vercel.json`:
 
 ```json
-{ "path": "/api/cron/catalog-sync", "schedule": "0 3 * * *" }
+[
+  { "path": "/api/cron/catalog-sync", "schedule": "0 3 * * *" },
+  { "path": "/api/cron/job-worker", "schedule": "*/5 * * * *" }
+]
 ```
 
 In production the route requires:
@@ -145,7 +221,19 @@ npm run catalog:run-jobs
 npm run catalog:sync
 ```
 
-Jobs are small-batch and lock rows with `CatalogJob.lockedAt/lockedBy`, so one run does not try to process every store at once.
+Jobs are small-batch and lock rows with `CatalogJob.lockedAt/lockedBy`, so one
+run does not try to process every store at once. Terminal writes are fenced to
+the exact worker lease, the sequential runner claims one job at a time, and
+unknown or unimplemented job types fail instead of becoming false successes.
+Scheduler job IDs are deterministic per store/provider/cadence bucket, so
+repeated cron invocations do not create duplicate discovery or refresh work.
+Portfolio plans are inserted in bulk (two writes for refresh and discovery),
+so 100 stores do not require hundreds of serial scheduler round trips. The
+frequent worker gives `ROUTE_ORDER` first claim priority so catalog backlogs do
+not delay paid-order handling; catalog work remains FIFO within its class.
+The scheduler considers every configured active store (up to the explicit
+500-store safety bound) in stable order; mock automation requires
+`CATALOG_ALLOW_MOCK_AUTOMATION=true`.
 
 ## Fulfillment Modes
 

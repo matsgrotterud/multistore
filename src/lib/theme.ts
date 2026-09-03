@@ -30,6 +30,30 @@ function hexChannels(hex: string): [number, number, number] {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
 
+function relativeLuminance(hex: string): number {
+  return hexChannels(hex)
+    .map((channel) => channel / 255)
+    .map((channel) =>
+      channel <= 0.03928
+        ? channel / 12.92
+        : Math.pow((channel + 0.055) / 1.055, 2.4)
+    )
+    .reduce(
+      (sum, channel, index) =>
+        sum + channel * ([0.2126, 0.7152, 0.0722][index] ?? 0),
+      0
+    );
+}
+
+/** WCAG contrast ratio for two #rrggbb colors. Invalid colors resolve safely. */
+export function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 /** #rrggbb -> "r g b" channel triple for Tailwind <alpha-value> colors. */
 function hexToRgbChannels(hex: string): string {
   return hexChannels(hex).join(" ");

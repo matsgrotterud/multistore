@@ -1,4 +1,10 @@
-const CJ_API_BASE = process.env.CJ_API_BASE ?? "https://developers.cjdropshipping.com/api2.0/v1";
+import {
+  cjTransportFetch,
+  type CjTransportFetch,
+} from "@/lib/suppliers/providers/cj-request-gate";
+
+const DEFAULT_CJ_API_BASE =
+  "https://developers.cjdropshipping.com/api2.0/v1";
 
 interface CjTokenResponse {
   accessToken: string;
@@ -6,7 +12,203 @@ interface CjTokenResponse {
   accessTokenExpiryDate?: string;
 }
 
-let cachedToken: { accessToken: string; refreshToken: string; expiresAt: number } | null = null;
+interface CjAuthClientOptions {
+  transportFetch?: CjTransportFetch;
+  env?: Readonly<Record<string, string | undefined>>;
+  now?: () => number;
+  apiBase?: string;
+}
+
+export interface CjAuthClient {
+  cjFetch<T>(path: string, init?: RequestInit): Promise<T>;
+  getAccessToken(signal?: AbortSignal): Promise<string>;
+}
+
+/**
+ * Creates an isolated auth client while keeping every real CJ HTTP start on
+ * the supplied transport. Production uses the singleton process-local paced
+ * transport; tests can inject the same boundary with a virtual clock.
+ */
+export function createCjAuthClient(
+  options: CjAuthClientOptions = {}
+): CjAuthClient {
+  const transportFetch = options.transportFetch ?? cjTransportFetch;
+  const env = options.env ?? process.env;
+  const now = options.now ?? Date.now;
+  const apiBase = options.apiBase ?? env.CJ_API_BASE ?? DEFAULT_CJ_API_BASE;
+  let cachedToken: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+  } | null = null;
+
+  const cacheToken = (result: CjTokenResponse): void => {
+    const expiresAt = result.accessTokenExpiryDate
+      ? new Date(result.accessTokenExpiryDate).getTime()
+      : now() + 12 * 60 * 60 * 1000;
+    cachedToken = {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresAt,
+    };
+  };
+
+  const requestToken = async (
+    body: Record<string, string>,
+    signal?: AbortSignal
+  ): Promise<CjTokenResponse> => {
+    const response = await transportFetch(
+      `${apiBase}/authentication/getAccessToken`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      }
+    );
+
+    const json = (await response.json()) as {
+      code?: number;
+      result?: CjTokenResponse | boolean;
+      data?: CjTokenResponse;
+      message?: string;
+    };
+    const token =
+      json.data ??
+      (typeof json.result === "object" ? json.result : undefined);
+
+    if (!response.ok || !token?.accessToken) {
+      throw new Error(json.message ?? "CJ authentication failed");
+    }
+
+    return token;
+  };
+
+  const refreshCjToken = async (
+    refreshToken: string,
+    signal?: AbortSignal
+  ): Promise<CjTokenResponse> => {
+    const response = await transportFetch(
+      `${apiBase}/authentication/refreshAccessToken`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+        signal,
+      }
+    );
+
+    const json = (await response.json()) as {
+      code?: number;
+      result?: CjTokenResponse | boolean;
+      data?: CjTokenResponse;
+      message?: string;
+    };
+    const token =
+      json.data ??
+      (typeof json.result === "object" ? json.result : undefined);
+
+    if (!response.ok || !token?.accessToken) {
+      throw new Error(json.message ?? "CJ token refresh failed");
+    }
+
+    cacheToken(token);
+    return token;
+  };
+
+  const getAccessToken = async (signal?: AbortSignal): Promise<string> => {
+    if (env.CJ_ENABLED !== "true") {
+      throw new Error("CJ_ENABLED is not true");
+    }
+
+    if (cachedToken && cachedToken.expiresAt > now() + 60_000) {
+      return cachedToken.accessToken;
+    }
+
+    if (env.CJ_REFRESH_TOKEN) {
+      try {
+        const refreshed = await refreshCjToken(env.CJ_REFRESH_TOKEN, signal);
+        return refreshed.accessToken;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // Fall through to a static token or API-key auth.
+      }
+    }
+
+    if (env.CJ_ACCESS_TOKEN) {
+      cachedToken = {
+        accessToken: env.CJ_ACCESS_TOKEN,
+        refreshToken: env.CJ_REFRESH_TOKEN ?? "",
+        expiresAt: now() + 12 * 60 * 60 * 1000,
+      };
+      return env.CJ_ACCESS_TOKEN;
+    }
+
+    const apiKey = env.CJ_API_KEY;
+    if (!apiKey) {
+      throw new Error("CJ_API_KEY or CJ_ACCESS_TOKEN is required");
+    }
+
+    try {
+      const response = await requestToken({ apiKey }, signal);
+      cacheToken(response);
+      return response.accessToken;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (!env.CJ_EMAIL) throw error;
+    }
+
+    const legacyResponse = await requestToken(
+      {
+        email: env.CJ_EMAIL,
+        password: apiKey,
+      },
+      signal
+    );
+    cacheToken(legacyResponse);
+    return legacyResponse.accessToken;
+  };
+
+  const request = async <T>(
+    path: string,
+    init?: RequestInit
+  ): Promise<T> => {
+    const token = await getAccessToken(init?.signal ?? undefined);
+    const response = await transportFetch(`${apiBase}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "CJ-Access-Token": token,
+        ...(env.CJ_PLATFORM_TOKEN
+          ? { platformToken: env.CJ_PLATFORM_TOKEN }
+          : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+
+    const json = (await response.json()) as {
+      code?: number;
+      result?: T | boolean;
+      message?: string;
+      data?: T;
+    };
+    if (
+      !response.ok ||
+      (json.code !== undefined && json.code !== 200 && json.code !== 0)
+    ) {
+      throw new Error(json.message ?? `CJ API error (${response.status})`);
+    }
+    if (json.data !== undefined) return json.data as T;
+    if (typeof json.result === "object" && json.result !== null) {
+      return json.result as T;
+    }
+    return json as T;
+  };
+
+  return { cjFetch: request, getAccessToken };
+}
+
+const defaultAuthClient = createCjAuthClient();
 
 function isEnabled(): boolean {
   return process.env.CJ_ENABLED === "true";
@@ -21,133 +223,11 @@ function requiredEnv(): string[] {
 }
 
 async function cjFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await getCjAccessToken();
-  const response = await fetch(`${CJ_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "CJ-Access-Token": token,
-      ...(process.env.CJ_PLATFORM_TOKEN ? { platformToken: process.env.CJ_PLATFORM_TOKEN } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  const json = (await response.json()) as {
-    code?: number;
-    result?: T | boolean;
-    message?: string;
-    data?: T;
-  };
-  if (!response.ok || (json.code !== undefined && json.code !== 200 && json.code !== 0)) {
-    throw new Error(json.message ?? `CJ API error (${response.status})`);
-  }
-  if (json.data !== undefined) return json.data as T;
-  if (typeof json.result === "object" && json.result !== null) return json.result as T;
-  return json as T;
+  return defaultAuthClient.cjFetch<T>(path, init);
 }
 
-export async function getCjAccessToken(): Promise<string> {
-  if (!isEnabled()) {
-    throw new Error("CJ_ENABLED is not true");
-  }
-
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
-    return cachedToken.accessToken;
-  }
-
-  if (process.env.CJ_REFRESH_TOKEN) {
-    try {
-      const refreshed = await refreshCjToken(process.env.CJ_REFRESH_TOKEN);
-      return refreshed.accessToken;
-    } catch {
-      // Fall through to a static token or API-key auth.
-    }
-  }
-
-  if (process.env.CJ_ACCESS_TOKEN) {
-    cachedToken = {
-      accessToken: process.env.CJ_ACCESS_TOKEN,
-      refreshToken: process.env.CJ_REFRESH_TOKEN ?? "",
-      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
-    };
-    return process.env.CJ_ACCESS_TOKEN;
-  }
-
-  const apiKey = process.env.CJ_API_KEY;
-  if (!apiKey) {
-    throw new Error("CJ_API_KEY or CJ_ACCESS_TOKEN is required");
-  }
-
-  try {
-    const response = await requestToken({ apiKey });
-    cacheToken(response);
-    return response.accessToken;
-  } catch (error) {
-    if (!process.env.CJ_EMAIL) throw error;
-  }
-
-  const legacyResponse = await requestToken({
-    email: process.env.CJ_EMAIL,
-    password: apiKey,
-  });
-  cacheToken(legacyResponse);
-  return legacyResponse.accessToken;
-}
-
-async function requestToken(body: Record<string, string>): Promise<CjTokenResponse> {
-  const response = await fetch(`${CJ_API_BASE}/authentication/getAccessToken`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const json = (await response.json()) as {
-    code?: number;
-    result?: CjTokenResponse | boolean;
-    data?: CjTokenResponse;
-    message?: string;
-  };
-  const token = json.data ?? (typeof json.result === "object" ? json.result : undefined);
-
-  if (!response.ok || !token?.accessToken) {
-    throw new Error(json.message ?? "CJ authentication failed");
-  }
-
-  return token;
-}
-
-async function refreshCjToken(refreshToken: string): Promise<CjTokenResponse> {
-  const response = await fetch(`${CJ_API_BASE}/authentication/refreshAccessToken`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken }),
-  });
-
-  const json = (await response.json()) as {
-    code?: number;
-    result?: CjTokenResponse | boolean;
-    data?: CjTokenResponse;
-    message?: string;
-  };
-  const token = json.data ?? (typeof json.result === "object" ? json.result : undefined);
-
-  if (!response.ok || !token?.accessToken) {
-    throw new Error(json.message ?? "CJ token refresh failed");
-  }
-
-  cacheToken(token);
-  return token;
-}
-
-function cacheToken(result: CjTokenResponse): void {
-  const expiresAt = result.accessTokenExpiryDate
-    ? new Date(result.accessTokenExpiryDate).getTime()
-    : Date.now() + 12 * 60 * 60 * 1000;
-  cachedToken = {
-    accessToken: result.accessToken,
-    refreshToken: result.refreshToken,
-    expiresAt,
-  };
+export async function getCjAccessToken(signal?: AbortSignal): Promise<string> {
+  return defaultAuthClient.getAccessToken(signal);
 }
 
 export function getCjHealthInfo(): {

@@ -1,6 +1,5 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { DOMAIN_MAP } from "@/config/domain-map";
 import type { AuditEvidence } from "./types";
 
 interface ReadOnlyRow {
@@ -61,18 +60,14 @@ export async function collectDatabaseEvidence(
         tx.domain.findMany({ select: { hostname: true, store: { select: { slug: true } } } }),
       ]);
 
-      const databaseRoutes = new Map(
-        domains.map((domain) => [normalizeHost(domain.hostname), domain.store.slug])
-      );
-      const configuredRoutes = new Map(
-        Object.entries(DOMAIN_MAP).map(([host, slug]) => [normalizeHost(host), slug])
-      );
+      const databaseRoutes = new Map<string, string>();
       const drift = new Set<string>();
-      for (const [host, slug] of databaseRoutes) {
-        if (configuredRoutes.get(host) !== slug) drift.add(host);
-      }
-      for (const [host, slug] of configuredRoutes) {
-        if (databaseRoutes.get(host) !== slug) drift.add(host);
+      for (const domain of domains) {
+        const normalized = normalizeHost(domain.hostname);
+        if (normalized !== domain.hostname) drift.add(domain.hostname);
+        const existing = databaseRoutes.get(normalized);
+        if (existing && existing !== domain.store.slug) drift.add(normalized);
+        databaseRoutes.set(normalized, domain.store.slug);
       }
 
       return {
@@ -106,7 +101,7 @@ export async function collectDatabaseEvidence(
           pass(
             "domain.no-routing-drift",
             drift.size === 0,
-            `${drift.size} hostnames differ between the database and edge map.`
+            `${drift.size} database hostnames are unnormalized or map ambiguously.`
           ),
         ]),
       };

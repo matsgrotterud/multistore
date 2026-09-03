@@ -26,5 +26,7 @@ export function isMockCheckoutEnabled(): boolean {
 }
 
 export function paymentCaptureMode(): "automatic" | "manual" {
-  return process.env.PAYMENT_CAPTURE_MODE === "manual" ? "manual" : "automatic";
+  // Dropshipping must authorize first and capture only after the supplier
+  // route is durably confirmed. Missing or mistyped configuration fails safe.
+  return process.env.PAYMENT_CAPTURE_MODE === "automatic" ? "automatic" : "manual";
 }

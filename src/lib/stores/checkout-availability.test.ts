@@ -67,6 +67,18 @@ test("CJ dropship checkout requires the complete live order configuration", () =
       CJ_API_KEY: "configured",
       CJ_LOGISTIC_NAME: "tracked-route",
       CJ_FROM_COUNTRY_CODE: "CN",
+      CJ_ORDER_PAY_TYPE: "3",
+    }),
+    false
+  );
+  assert.equal(
+    isProductCheckoutAvailable(cjProduct, {
+      CJ_ENABLED: "true",
+      CJ_ORDER_API_ENABLED: "true",
+      CJ_API_KEY: "configured",
+      CJ_LOGISTIC_NAME: "tracked-route",
+      CJ_FROM_COUNTRY_CODE: "CN",
+      CJ_ORDER_PAY_TYPE: "2",
     }),
     true
   );

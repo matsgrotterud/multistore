@@ -21,16 +21,17 @@ export class EbayProvider implements CommerceProvider {
   defaultFulfillmentMode = "AFFILIATE" as const;
 
   get capabilities(): ProviderCapabilities {
-    const checkout = process.env.EBAY_BUY_ORDER_ENABLED === "true";
     return {
       search: true,
       details: true,
       images: true,
       video: false,
       pricing: true,
-      inventory: true,
-      checkout,
-      tracking: checkout,
+      // The current mapping preserves availability as UNKNOWN unless the API
+      // explicitly reports OUT_OF_STOCK; that is not an inventory capability.
+      inventory: false,
+      checkout: false,
+      tracking: false,
       returns: false,
       affiliateLinks: true,
     };
@@ -45,7 +46,7 @@ export class EbayProvider implements CommerceProvider {
         status: "NOT_CONFIGURED",
         message: "eBay search requires OAuth client credentials.",
         missingEnv: missing,
-        capabilities: { ...this.capabilities, search: false, details: false, images: false, pricing: false, inventory: false },
+        capabilities: { ...this.capabilities, search: false, details: false, images: false, pricing: false },
         defaultFulfillmentMode: this.defaultFulfillmentMode,
       };
     }
@@ -56,7 +57,7 @@ export class EbayProvider implements CommerceProvider {
       status: "OK",
       message:
         process.env.EBAY_BUY_ORDER_ENABLED === "true"
-          ? "eBay Browse API is configured. Buy/order capability flag is enabled; verify account approval before routing orders."
+          ? "eBay Browse API is configured, but order routing is not implemented; EBAY_BUY_ORDER_ENABLED does not enable checkout."
           : "eBay Browse API is configured in affiliate/search mode.",
       capabilities: this.capabilities,
       defaultFulfillmentMode: this.defaultFulfillmentMode,

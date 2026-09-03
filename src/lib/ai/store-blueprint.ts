@@ -17,6 +17,25 @@ import type {
   StoreBlueprint,
   StoreBlueprintInput,
 } from "@/lib/ai/types";
+import {
+  buildClassQueryPlanV1,
+  resolveNicheIntentV1,
+} from "@/lib/generator-v3/core";
+import {
+  profileFromOntologyV1,
+  proposeRuntimeProductClassV1,
+  validateRuntimeProductClassProfileV1,
+} from "@/lib/generator-v3/class-profile";
+import type {
+  ClassQueryPlanV1,
+  NicheIntentV1,
+  ProductClassProfileV1,
+} from "@/lib/generator-v3/contracts";
+import {
+  issueApprovedStorePlanToken,
+  issueProductClassProposalToken,
+  verifyProductClassProposalToken,
+} from "@/lib/generator/store-plan";
 
 /** Split a comma/newline-separated string (or array) into a clean keyword list. */
 function normalizeKeywordList(value: string | string[] | undefined): string[] {
@@ -119,6 +138,35 @@ export interface BlueprintResult {
   guardrails: GuardrailReport;
 }
 
+export type StoreBlueprintPreparation =
+  | {
+      status: "NEEDS_PRODUCT_CLASS";
+      intent: NicheIntentV1;
+      queryPlan: ClassQueryPlanV1;
+    }
+  | {
+      status: "BLOCKED";
+      intent: NicheIntentV1;
+      queryPlan: ClassQueryPlanV1;
+      reasonCodes: string[];
+    }
+  | {
+      status: "NEEDS_PRODUCT_CLASS_CONFIRMATION";
+      intent: NicheIntentV1;
+      queryPlan: ClassQueryPlanV1;
+      proposal: ProductClassProfileV1;
+      proposalToken: string;
+    }
+  | {
+      status: "READY";
+      intent: NicheIntentV1;
+      queryPlan: ClassQueryPlanV1;
+      classProfile: ProductClassProfileV1;
+      blueprint: StoreBlueprint;
+      guardrails: GuardrailReport;
+      approvedPlanToken: string;
+    };
+
 /**
  * Centralized public-copy guard: strips buyer-age demographics from every
  * shopper-visible blueprint string, regardless of which provider produced it.
@@ -169,6 +217,122 @@ export async function generateStoreBlueprint(
   });
 
   return { blueprint, guardrails };
+}
+
+/**
+ * Step-2 preflight for the admin wizard.
+ *
+ * Catalog truth is resolved before creative copy is generated. Unknown product
+ * classes return an actionable preparation result without inventing categories,
+ * supplier queries or a generation run. For known classes, the V3 ontology and
+ * query plan replace the legacy provider's merchandising suggestions.
+ */
+export async function prepareStoreBlueprint(
+  rawInput: unknown
+): Promise<StoreBlueprintPreparation> {
+  const input: StoreBlueprintInput = storeBlueprintInputSchema.parse(rawInput);
+  const intent = resolveNicheIntentV1({
+    niche: input.niche,
+    endUser: input.endUser,
+    negativeKeywords: input.negativeKeywords,
+  });
+  const queryPlan = buildClassQueryPlanV1(intent);
+  const classProfile = profileFromOntologyV1(intent.productClass);
+
+  if (intent.policyDecision === "BLOCK") {
+    return {
+      status: "BLOCKED",
+      intent,
+      queryPlan,
+      reasonCodes: intent.reasonCodes,
+    };
+  }
+
+  if (!classProfile) {
+    const proposal = proposeRuntimeProductClassV1(input);
+    if (proposal.status === "BLOCKED") {
+      return {
+        status: "BLOCKED",
+        intent,
+        queryPlan,
+        reasonCodes: proposal.reasonCodes,
+      };
+    }
+    if (proposal.status !== "PROPOSED") {
+      return { status: "NEEDS_PRODUCT_CLASS", intent, queryPlan };
+    }
+    const proposedIntent = resolveNicheIntentV1(input, proposal.profile);
+    const proposedQueryPlan = buildClassQueryPlanV1(proposedIntent);
+    if (proposedQueryPlan.queries.length === 0) {
+      return { status: "NEEDS_PRODUCT_CLASS", intent, queryPlan };
+    }
+    return {
+      status: "NEEDS_PRODUCT_CLASS_CONFIRMATION",
+      intent: proposedIntent,
+      queryPlan: proposedQueryPlan,
+      proposal: proposal.profile,
+      proposalToken: issueProductClassProposalToken(input, proposal.profile),
+    };
+  }
+
+  return buildReadyStorePlan(input, classProfile);
+}
+
+/** Confirm only the exact server-signed runtime proposal shown in Step 2. */
+export async function confirmPreparedProductClass(
+  proposalToken: string
+): Promise<StoreBlueprintPreparation> {
+  const proposed = verifyProductClassProposalToken(proposalToken);
+  const classProfile = validateRuntimeProductClassProfileV1(
+    proposed.input,
+    proposed.classProfile
+  );
+  if (!classProfile) {
+    throw new Error("Product-class proposal is stale or no longer valid.");
+  }
+  return buildReadyStorePlan(proposed.input, classProfile);
+}
+
+async function buildReadyStorePlan(
+  input: StoreBlueprintInput,
+  classProfile: ProductClassProfileV1
+): Promise<Extract<StoreBlueprintPreparation, { status: "READY" }>> {
+  const intent = resolveNicheIntentV1(
+    input,
+    classProfile.source === "RUNTIME_PROVISIONAL" ? classProfile : undefined
+  );
+  const queryPlan = buildClassQueryPlanV1(intent);
+  if (
+    intent.policyDecision === "BLOCK" ||
+    intent.productClass !== classProfile.productClass ||
+    queryPlan.queries.length === 0
+  ) {
+    throw new Error("Product class cannot produce an approved preview plan.");
+  }
+  const generated = await generateStoreBlueprint(input);
+  const blueprint: StoreBlueprint = {
+    ...generated.blueprint,
+    categories: [classProfile.category],
+    productImportQueries: queryPlan.queries.map((entry) => entry.query),
+  };
+  const issued = issueApprovedStorePlanToken({
+    version: "store-plan.v1",
+    input,
+    classProfile,
+    intent,
+    queryPlan,
+    blueprint,
+    guardrails: generated.guardrails,
+  });
+  return {
+    status: "READY",
+    intent,
+    queryPlan,
+    classProfile,
+    guardrails: generated.guardrails,
+    blueprint,
+    approvedPlanToken: issued.token,
+  };
 }
 
 export async function generateCategoryPlan(

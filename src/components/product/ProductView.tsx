@@ -12,6 +12,10 @@ import { ShippingEstimate } from "@/components/ShippingEstimate";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { StructuredData } from "@/components/StructuredData";
 import { breadcrumbJsonLd, faqPageJsonLd, productJsonLd } from "@/lib/seo/jsonld";
+import {
+  isFirstPartyMediaUrl,
+  selectPublicProductImage,
+} from "@/lib/media/public-media";
 import type { CatalogProduct } from "@/lib/stores/queries";
 import { toClientProduct } from "@/lib/stores/queries";
 import type { StoreWithTheme } from "@/lib/tenant/resolve-tenant";
@@ -46,24 +50,44 @@ export function ProductView({
   const specs = parseSpecs(product.specs);
   const useCases = parseStringArray(product.useCases);
   const faq = parseFaq(product.faq);
-  const clientProduct = toClientProduct(product);
   const stockLabel = isStockStatus(product.stockStatus)
     ? STOCK_STATUS_LABELS[product.stockStatus]
     : product.stockStatus;
 
-  const galleryUrls =
-    product.images.length > 0
-      ? product.images.map((image) => image.url)
-      : [product.imageUrl];
-  const galleryMedia =
-    product.mediaAssets.length > 0
-      ? product.mediaAssets.map((asset) => ({
-          url: asset.storageUrl ?? asset.sourceUrl,
-          mediaType: asset.mediaType === "VIDEO" ? ("VIDEO" as const) : ("IMAGE" as const),
+  const storedMedia = product.mediaAssets.flatMap((asset) =>
+    asset.storageUrl
+      ? [{
+          url: asset.storageUrl,
+          mediaType:
+            asset.mediaType === "VIDEO" ? ("VIDEO" as const) : ("IMAGE" as const),
           alt: asset.alt || product.imageAlt,
-          thumbnailUrl: asset.thumbnailUrl,
-        }))
-      : undefined;
+        }]
+      : []
+  );
+  const storedUrls = new Set(storedMedia.map((item) => item.url));
+  const storedGallery = product.images
+    .filter((image) => isFirstPartyMediaUrl(image.url) || image.ingestionStatus === "STORED")
+    .filter((image) => !storedUrls.has(image.url))
+    .map((image) => ({
+      url: image.url,
+      mediaType: "IMAGE" as const,
+      alt: image.alt || product.imageAlt,
+    }));
+  const primaryImage = selectPublicProductImage({
+    productImageUrl: product.imageUrl,
+    storedAssetUrls: storedMedia
+      .filter((item) => item.mediaType === "IMAGE")
+      .map((item) => item.url),
+    storedGalleryUrls: storedGallery.map((item) => item.url),
+  });
+  const galleryMedia =
+    storedMedia.length + storedGallery.length > 0
+      ? [...storedMedia, ...storedGallery]
+      : [{ url: primaryImage, mediaType: "IMAGE" as const, alt: product.imageAlt }];
+  const galleryUrls = galleryMedia
+    .filter((item) => item.mediaType === "IMAGE")
+    .map((item) => item.url);
+  const clientProduct = toClientProduct({ ...product, imageUrl: primaryImage });
 
   return (
     <div className="mx-auto max-w-site px-4 py-8 pb-24 sm:px-6 md:pb-8">

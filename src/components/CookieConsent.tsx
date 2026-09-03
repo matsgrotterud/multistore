@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCookieConsent, setCookieConsent } from "@/lib/consent";
+import {
+  getCookieConsent,
+  OPEN_COOKIE_PREFERENCES_EVENT,
+  setCookieConsent,
+} from "@/lib/consent";
 
 /**
  * Cookie consent banner. Necessary cookies are always on; analytics and
@@ -12,11 +16,26 @@ import { getCookieConsent, setCookieConsent } from "@/lib/consent";
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  const [analytics, setAnalytics] = useState(true);
+  const [analytics, setAnalytics] = useState(false);
   const [marketing, setMarketing] = useState(false);
 
   useEffect(() => {
-    if (getCookieConsent() === null) setVisible(true);
+    const current = getCookieConsent();
+    if (current === null) {
+      setAnalytics(false);
+      setMarketing(false);
+      setVisible(true);
+    }
+    const openPreferences = () => {
+      const saved = getCookieConsent();
+      setAnalytics(saved?.analytics ?? false);
+      setMarketing(saved?.marketing ?? false);
+      setShowDetails(true);
+      setVisible(true);
+    };
+    window.addEventListener(OPEN_COOKIE_PREFERENCES_EVENT, openPreferences);
+    return () =>
+      window.removeEventListener(OPEN_COOKIE_PREFERENCES_EVENT, openPreferences);
   }, []);
 
   if (!visible) return null;
@@ -97,6 +116,15 @@ export function CookieConsent() {
               onClick={() => setShowDetails(true)}
             >
               Choose per category
+            </button>
+          )}
+          {showDetails && (
+            <button
+              type="button"
+              className="text-sm font-medium text-ink/70 underline hover:text-primary"
+              onClick={() => setVisible(false)}
+            >
+              Cancel
             </button>
           )}
         </div>

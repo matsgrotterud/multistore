@@ -5,6 +5,10 @@ import {
   isCjEnabled,
 } from "@/lib/suppliers/providers/cj-auth";
 import {
+  runCjCatalogRequest,
+  type CjCatalogRequestRunner,
+} from "@/lib/suppliers/providers/cj-request-gate";
+import {
   BASE_UNCONFIGURED_CAPABILITIES,
   type CommerceProvider,
   type CreateDropshipOrderInput,
@@ -18,6 +22,7 @@ import {
   type SupplierMedia,
   validateSearchResults,
 } from "@/lib/suppliers/providers/types";
+import { ProviderAuthMissingError } from "@/lib/suppliers/providers/errors";
 
 const baseCapabilities: ProviderCapabilities = {
   search: true,
@@ -27,7 +32,8 @@ const baseCapabilities: ProviderCapabilities = {
   pricing: true,
   inventory: false,
   checkout: false,
-  tracking: true,
+  // No CJ tracking read API is implemented in this adapter yet.
+  tracking: false,
   returns: false,
   affiliateLinks: false,
 };
@@ -84,21 +90,48 @@ interface CjListV2Response {
   list?: CjProductListItem[];
 }
 
+export type CjFetch = <T>(path: string, init?: RequestInit) => Promise<T>;
+
+export interface CjProviderDependencies {
+  fetch?: CjFetch;
+  runCatalogRequest?: CjCatalogRequestRunner;
+  getHealthInfo?: typeof getCjHealthInfo;
+  getOrderConfig?: typeof getCjOrderConfig;
+  isEnabled?: typeof isCjEnabled;
+}
+
 export class CjDropshippingProvider implements CommerceProvider {
   key = "cj" as const;
   name = "CJdropshipping";
   defaultFulfillmentMode = "DROPSHIP" as const;
 
+  private readonly request: CjFetch;
+  private readonly runCatalogRequest: CjCatalogRequestRunner;
+  private readonly healthInfo: typeof getCjHealthInfo;
+  private readonly orderConfig: typeof getCjOrderConfig;
+  private readonly enabled: typeof isCjEnabled;
+
+  constructor(dependencies: CjProviderDependencies = {}) {
+    this.request = dependencies.fetch ?? cjFetch;
+    this.runCatalogRequest = dependencies.runCatalogRequest ?? runCjCatalogRequest;
+    this.healthInfo = dependencies.getHealthInfo ?? getCjHealthInfo;
+    this.orderConfig = dependencies.getOrderConfig ?? getCjOrderConfig;
+    this.enabled = dependencies.isEnabled ?? isCjEnabled;
+  }
+
   get capabilities(): ProviderCapabilities {
+    const orderConfig = this.orderConfig();
     return {
       ...baseCapabilities,
-      checkout: getCjOrderConfig().enabled,
+      // payType=3 returns PENDING and needs a read-side reconciliation API
+      // before a Stripe authorization can be captured safely.
+      checkout: orderConfig.enabled && orderConfig.payType === 2,
     };
   }
 
   async getHealth(): Promise<ProviderHealth> {
-    const info = getCjHealthInfo();
-    const orderConfig = getCjOrderConfig();
+    const info = this.healthInfo();
+    const orderConfig = this.orderConfig();
     if (!info.enabled) {
       return {
         key: this.key,
@@ -124,15 +157,21 @@ export class CjDropshippingProvider implements CommerceProvider {
     }
 
     try {
-      await cjFetch<CjListV2Response>(
-        `/product/listV2?page=1&size=1&keyWord=${encodeURIComponent("brush")}`
-      );
+      await this.runCatalogRequest({
+        request: (signal) =>
+          this.request<CjListV2Response>(
+            `/product/listV2?page=1&size=1&keyWord=${encodeURIComponent("brush")}`,
+            { signal }
+          ),
+      });
       return {
         key: this.key,
         name: this.name,
         status: "OK",
-        message: orderConfig.enabled
-          ? `CJ API reachable. Order API enabled with payType=${orderConfig.payType}.`
+        message: orderConfig.enabled && orderConfig.payType === 2
+          ? "CJ API reachable. Synchronous order route is enabled with payType=2."
+          : orderConfig.enabled
+            ? "CJ API reachable, but payType=3 remains checkout-disabled until supplier reconciliation is implemented."
           : orderConfig.missingEnv.length > 0 && process.env.CJ_ORDER_API_ENABLED === "true"
             ? `CJ API reachable. Order API flag is on, but missing ${orderConfig.missingEnv.join(", ")}.`
             : "CJ API reachable. Order API remains disabled until explicitly enabled.",
@@ -157,11 +196,17 @@ export class CjDropshippingProvider implements CommerceProvider {
   }
 
   async searchProducts(input: ProductSearchInput): Promise<ProductSearchResult[]> {
-    if (!isCjEnabled()) return [];
+    if (!this.enabled()) {
+      throw new ProviderAuthMissingError("cj", ["CJ_ENABLED"]);
+    }
     const limit = Math.max(1, Math.min(input.limit ?? 12, 100));
-    const data = await cjFetch<CjListV2Response>(
-      `/product/listV2?page=1&size=${limit}&keyWord=${encodeURIComponent(input.query)}&features=enable_description,enable_video`
-    );
+    const data = await this.runCatalogRequest({
+      request: (signal) =>
+        this.request<CjListV2Response>(
+          `/product/listV2?page=1&size=${limit}&keyWord=${encodeURIComponent(input.query)}&features=enable_description,enable_video`,
+          { signal }
+        ),
+    });
     const list =
       data.list ??
       data.content?.flatMap((group) => group.productList ?? []) ??
@@ -173,10 +218,14 @@ export class CjDropshippingProvider implements CommerceProvider {
   }
 
   async getProductDetails(input: ProductDetailsInput): Promise<ProductSearchResult> {
-    if (!isCjEnabled()) throw new Error("CJ is not enabled");
-    const data = await cjFetch<CjProductListItem>(
-      `/product/query?pid=${encodeURIComponent(input.externalId)}&features=enable_video`
-    );
+    if (!this.enabled()) throw new Error("CJ is not enabled");
+    const data = await this.runCatalogRequest({
+      request: (signal) =>
+        this.request<CjProductListItem>(
+          `/product/query?pid=${encodeURIComponent(input.externalId)}&features=enable_video`,
+          { signal }
+        ),
+    });
     const mapped = mapCjProduct(data, data);
     if (!mapped) throw new Error(`CJ product not found: ${input.externalId}`);
     return validateSearchResults(this.key, [mapped])[0];
@@ -188,7 +237,7 @@ export class CjDropshippingProvider implements CommerceProvider {
   }
 
   async createDropshipOrder(input: CreateDropshipOrderInput): Promise<CreateSupplierOrderResult> {
-    const orderConfig = getCjOrderConfig();
+    const orderConfig = this.orderConfig();
     if (!orderConfig.enabled) {
       return {
         status: "ERROR",
@@ -199,31 +248,16 @@ export class CjDropshippingProvider implements CommerceProvider {
         requestJson: input,
       };
     }
+    if (orderConfig.payType !== 2) {
+      return {
+        status: "ERROR",
+        errorMessage:
+          "CJ payType=3 requires supplier-order reconciliation and is not enabled for live checkout.",
+        requestJson: input,
+      };
+    }
 
     try {
-      const products = await Promise.all(
-        input.items.map(async (item) => {
-          const variant =
-            item.externalVariantId || item.sku
-              ? { vid: item.externalVariantId, sku: item.sku }
-              : await resolveCjVariant(item.externalId);
-          return {
-            vid: variant.vid,
-            sku: variant.vid ? undefined : variant.sku,
-            quantity: item.quantity,
-            storeLineItemId: item.externalId,
-          };
-        })
-      );
-      const missingVariant = products.find((product) => !product.vid && !product.sku);
-      if (missingVariant) {
-        return {
-          status: "ERROR",
-          errorMessage: "CJ order requires a variant id (vid) or SKU for every line item.",
-          requestJson: input,
-        };
-      }
-
       const countryCode = normalizeCountryCode(input.shippingAddress.country);
       if (!countryCode) {
         return {
@@ -233,7 +267,36 @@ export class CjDropshippingProvider implements CommerceProvider {
         };
       }
 
-      const response = await cjFetch<{ orderId?: string; orderNum?: string }>(
+      // Resolve missing identities one-by-one. Each lookup acquires the same CJ
+      // transport gate, and no order is submitted unless every identity comes
+      // from persisted input or a successful supplier response.
+      const products: Array<{
+        vid?: string;
+        sku?: string;
+        quantity: number;
+        storeLineItemId: string;
+      }> = [];
+      for (const item of input.items) {
+        const variant =
+          item.externalVariantId || item.sku
+            ? { vid: item.externalVariantId, sku: item.sku }
+            : await this.resolveCjVariant(item.externalId);
+        if (!variant.vid && !variant.sku) {
+          throw new Error(
+            `CJ variant identity is missing for product ${item.externalId}.`
+          );
+        }
+        products.push({
+          vid: variant.vid,
+          sku: variant.vid ? undefined : variant.sku,
+          quantity: item.quantity,
+          storeLineItemId: item.externalId,
+        });
+      }
+
+      // cjFetch owns the sole transport gate. Do not wrap this high-level call:
+      // it may authenticate before starting the order HTTP request.
+      const response = await this.request<{ orderId?: string; orderNum?: string }>(
         "/shopping/order/createOrderV2",
         {
           method: "POST",
@@ -256,10 +319,20 @@ export class CjDropshippingProvider implements CommerceProvider {
           }),
         }
       );
+      const externalOrderId = response.orderId?.trim() || response.orderNum?.trim();
+      if (!externalOrderId) {
+        return {
+          status: "PENDING",
+          errorMessage:
+            "CJ accepted the order request without a supplier order ID; reconcile before payment capture.",
+          requestJson: input,
+          responseJson: response,
+        };
+      }
 
       return {
-        status: orderConfig.payType === 2 ? "PLACED" : "PENDING",
-        externalOrderId: response.orderId ?? response.orderNum,
+        status: "PLACED",
+        externalOrderId,
         requestJson: input,
         responseJson: response,
       };
@@ -271,17 +344,28 @@ export class CjDropshippingProvider implements CommerceProvider {
       };
     }
   }
-}
 
-async function resolveCjVariant(externalId: string): Promise<{ vid?: string; sku?: string }> {
-  try {
-    const details = await cjFetch<CjProductListItem>(
-      `/product/query?pid=${encodeURIComponent(externalId)}`
-    );
-    const variant = details.variants?.find((entry) => entry.vid || entry.variantSku);
-    return { vid: variant?.vid, sku: variant?.variantSku };
-  } catch {
-    return { vid: externalId };
+  private async resolveCjVariant(
+    externalId: string
+  ): Promise<{ vid?: string; sku?: string }> {
+    const details = await this.runCatalogRequest({
+      request: (signal) =>
+        this.request<CjProductListItem>(
+          `/product/query?pid=${encodeURIComponent(externalId)}`,
+          { signal }
+        ),
+    });
+    const variants = details.variants ?? [];
+    if (variants.length > 1) {
+      throw new Error(
+        `CJ variant identity is ambiguous for product ${externalId}: supplier returned ${variants.length} variants. An explicit supplier variant identity is required.`
+      );
+    }
+    const variant = variants[0];
+    if (!variant?.vid && !variant?.variantSku) {
+      throw new Error(`CJ returned no variant identity for product ${externalId}.`);
+    }
+    return { vid: variant.vid, sku: variant.variantSku };
   }
 }
 
@@ -305,9 +389,19 @@ function mapCjProduct(item: CjProductListItem, rawData?: unknown): Record<string
     description: item.description ?? title,
     supplierCost,
     currency: "USD",
-    stockStatus: inventory === 0 ? "OUT_OF_STOCK" : "IN_STOCK",
-    shippingDaysMin: delivery?.min ?? 7,
-    shippingDaysMax: delivery?.max ?? 18,
+    // Missing inventory is not evidence of availability. CJ does not yet expose
+    // an authoritative inventory capability in this adapter, so preserve the
+    // unknown state unless the detail payload supplied an explicit quantity.
+    stockStatus:
+      inventory == null
+        ? "UNKNOWN"
+        : inventory === 0
+          ? "OUT_OF_STOCK"
+          : "IN_STOCK",
+    // Never invent delivery evidence. Missing CJ deliveryCycle remains unknown
+    // and therefore cannot pass catalog selection or live-commerce gates.
+    shippingDaysMin: delivery?.min,
+    shippingDaysMax: delivery?.max,
     countryOfOrigin: "CN",
     sourceUrl: `https://cjdropshipping.com/product/${externalId}.html`,
     fulfillmentMode: "DROPSHIP",
@@ -457,7 +551,12 @@ function normalizeCjVariants(variants: CjVariant[], productKeyEn?: string): Arra
         optionSummary,
         options,
         supplierCost: parsePrice(variant.variantSellPrice ?? variant.variantSugSellPrice),
-        stockStatus: inventoryQuantity === 0 ? "OUT_OF_STOCK" : "IN_STOCK",
+        stockStatus:
+          inventoryQuantity == null
+            ? "UNKNOWN"
+            : inventoryQuantity === 0
+              ? "OUT_OF_STOCK"
+              : "IN_STOCK",
         inventoryQuantity,
         imageUrl: typeof variant.variantImage === "string" ? normalizeHttpUrl(variant.variantImage) ?? undefined : undefined,
         rawData: variant,

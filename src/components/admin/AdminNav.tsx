@@ -6,13 +6,15 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", exact: true },
   { href: "/admin/stores", label: "Stores" },
+  { href: "/admin/store-factory-v2", label: "Factory V2" },
   { href: "/admin/products", label: "Products" },
   { href: "/admin/content", label: "Content" },
   { href: "/admin/import", label: "Import" },
+  { href: "/admin/catalog-autopilot", label: "Catalog Autopilot" },
   { href: "/admin/providers", label: "Providers" },
   { href: "/admin/orders", label: "Orders" },
-  { href: "/admin/experiments", label: "Experiments" },
-  { href: "/admin/seo-audit", label: "SEO Audit" },
+  { href: "/admin/experiments", label: "Growth Queue" },
+  { href: "/admin/seo-audit", label: "Readiness" },
   { href: "/admin/generator", label: "Generator" },
 ];
 
@@ -21,7 +23,7 @@ export function AdminNav() {
 
   return (
     <nav aria-label="Admin" className="lg:sticky lg:top-6">
-      <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:gap-0.5">
+      <ul className="flex flex-wrap gap-1 lg:flex-col lg:flex-nowrap lg:gap-0.5">
         {NAV_ITEMS.map((item) => {
           const active = item.exact
             ? pathname === item.href

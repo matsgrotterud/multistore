@@ -18,57 +18,110 @@ datasource db {
 }
 
 model Store {
-  id                        String   @id @default(cuid())
-  slug                      String   @unique
-  name                      String
-  legalName                 String
-  primaryDomain             String
-  locale                    String   @default("en-US")
-  currency                  String   @default("USD")
-  niche                     String
-  positioning               String
-  audience                  String
-  valueProposition          String
-  brandVoice                String
-  logoText                  String
-  supportEmail              String
-  supportPhone              String?
-  shippingOriginDisclosure  String
-  defaultShippingDaysMin    Int      @default(5)
-  defaultShippingDaysMax    Int      @default(12)
-  returnPolicySummary       String
-  privacyPolicy             String
-  termsOfSale               String
+  id                       String   @id @default(cuid())
+  slug                     String   @unique
+  name                     String
+  legalName                String
+  primaryDomain            String
+  locale                   String   @default("en-US")
+  currency                 String   @default("USD")
+  niche                    String
+  positioning              String
+  audience                 String
+  valueProposition         String
+  brandVoice               String
+  logoText                 String
+  supportEmail             String
+  supportPhone             String?
+  shippingOriginDisclosure String
+  defaultShippingDaysMin   Int      @default(5)
+  defaultShippingDaysMax   Int      @default(12)
+  returnPolicySummary      String
+  privacyPolicy            String
+  termsOfSale              String
   // DRAFT | PREVIEW | LIVE — PREVIEW stores are noindexed until a real domain is connected.
-  launchStatus              String   @default("PREVIEW")
+  launchStatus             String   @default("PREVIEW")
   // Domain the merchant plans to use (e.g. jaaaws.com). Storefront preview works via /s/[slug] until LIVE.
-  plannedDomain             String?
-  isActive                  Boolean  @default(true)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  plannedDomain            String?
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
-  theme                 StoreTheme?
-  settings              StoreSettings?
-  domains               Domain[]
-  categories            Category[]
-  products              Product[]
-  contentPages          ContentPage[]
-  collections           Collection[]
-  cartEvents            CartEvent[]
-  newsletterSubscribers NewsletterSubscriber[]
-  experiments           Experiment[]
-  supplierSettings      StoreSupplierSettings[]
-  productCandidates     ProductCandidate[]
-  catalogSyncRuns       CatalogSyncRun[]
-  catalogJobs           CatalogJob[]
-  customers             Customer[]
-  orders                Order[]
-  wishlists             Wishlist[]
+  theme                         StoreTheme?
+  settings                      StoreSettings?
+  domains                       Domain[]
+  categories                    Category[]
+  products                      Product[]
+  contentPages                  ContentPage[]
+  collections                   Collection[]
+  cartEvents                    CartEvent[]
+  newsletterSubscribers         NewsletterSubscriber[]
+  experiments                   Experiment[]
+  supplierSettings              StoreSupplierSettings[]
+  productCandidates             ProductCandidate[]
+  catalogSyncRuns               CatalogSyncRun[]
+  catalogJobs                   CatalogJob[]
+  catalogRefreshExecutions      CatalogRefreshExecution[]
+  catalogSupplierObservations   CatalogSupplierObservation[]
+  catalogRefreshProposals       CatalogRefreshProposal[]
+  catalogProductStates          CatalogProductState[]
+  catalogRefreshCursors         CatalogRefreshCursor[]
+  customers                     Customer[]
+  orders                        Order[]
+  wishlists                     Wishlist[]
+  storeBuildRuns                StoreBuildRun[]
+  storeRevisions                StoreRevision[]
+  previewRevisionPointer        StorePreviewRevisionPointer?
+  catalogV2Artifacts            CatalogArtifactV2[]
+  catalogV2Products             CatalogProductV2[]
+  catalogV2VariantIdentities    CatalogVariantIdentityV2[]
+  catalogV2ProductRevisions     CatalogProductRevisionV2[]
+  catalogV2TaxonomyNodes        CatalogTaxonomyNodeV2[]
+  catalogV2AttributeDefinitions CatalogAttributeDefinitionV2[]
+  catalogV2TaxonomyAttributes   CatalogTaxonomyAttributeDefinitionV2[]
+  catalogV2AttributeOptions     CatalogAttributeOptionV2[]
+  catalogV2AttributeValues      CatalogProductAttributeValueV2[]
+  catalogV2Collections          CatalogCollectionV2[]
+  catalogV2MediaAssets          CatalogMediaAssetV2[]
+  catalogV2MediaVariants        CatalogMediaVariantV2[]
+  catalogV2PurchaseOptions      CatalogPurchaseOptionV2[]
+  catalogV2Evidence             CatalogEvidenceV2[]
+  catalogV2SupplierOffers       CatalogSupplierOfferV2[]
+  catalogV2OfferObservations    CatalogSupplierOfferObservationV2[]
+}
+
+// One immutable, lossless root for a validated catalog artifact. Normalized
+// catalog rows below are query materializations of artifactJson.
+model CatalogArtifactV2 {
+  id                      String   @id
+  storeId                 String
+  sourceKind              String
+  sourceRef               String
+  contractVersion         String
+  description             String?
+  generatedAt             DateTime
+  taxonomyRef             String
+  taxonomyContractVersion String
+  artifactJson            String
+  contentDigest           String
+  createdAt               DateTime
+
+  store            Store                      @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevisions CatalogProductRevisionV2[]
+  taxonomyNodes    CatalogTaxonomyNodeV2[]
+  collections      CatalogCollectionV2[]
+  storeBuildRuns   StoreBuildRun[]            @relation("StoreBuildRunCatalogArtifact")
+  storeRevisions   StoreRevision[]            @relation("StoreRevisionCatalogArtifact")
+
+  @@unique([storeId, id], map: "CatalogArtifactV2_storeId_id_key")
+  @@unique([storeId, sourceKind, sourceRef, contentDigest], map: "CatalogArtifactV2_source_identity_key")
+  @@index([storeId, generatedAt])
+  @@index([contentDigest])
 }
 
 model StoreSettings {
-  id      String @id @default(cuid())
-  storeId String @unique
+  id       String @id @default(cuid())
+  storeId  String @unique
   // JSON-encoded StoreSettings object (see src/lib/settings/store-settings.ts).
   // Holds SEO defaults, homepage layout, monetization targets, marketing
   // pixels, personalization weights, automation thresholds and compliance
@@ -116,8 +169,8 @@ model Category {
   heroSubtitle   String
   sortOrder      Int    @default(0)
 
-  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  products Product[]
+  store             Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products          Product[]
   productCandidates ProductCandidate[]
 
   @@unique([storeId, slug])
@@ -125,100 +178,105 @@ model Category {
 }
 
 model Product {
-  id                String   @id @default(cuid())
-  storeId           String
-  categoryId        String
-  slug              String
-  title             String
-  subtitle          String
-  description       String
-  shortDescription  String
-  brand             String
-  sku               String
-  gtin              String?
-  imageUrl          String
-  imageAlt          String
-  price             Float
-  compareAtPrice    Float?
-  currency          String   @default("USD")
-  cost              Float
-  shippingCost      Float
-  marginPercent     Float
+  id                  String    @id @default(cuid())
+  storeId             String
+  categoryId          String
+  slug                String
+  title               String
+  subtitle            String
+  description         String
+  shortDescription    String
+  brand               String
+  sku                 String
+  gtin                String?
+  imageUrl            String
+  imageAlt            String
+  price               Float
+  compareAtPrice      Float?
+  currency            String    @default("USD")
+  cost                Float
+  shippingCost        Float
+  marginPercent       Float
   // One of: IN_STOCK | LOW_STOCK | OUT_OF_STOCK | PREORDER (enum in app code)
-  stockStatus       String   @default("IN_STOCK")
-  supplierName      String
-  supplierProductId String
+  stockStatus         String    @default("IN_STOCK")
+  supplierName        String
+  supplierProductId   String
   // aliexpress | temu | ebay | wish | alibaba — used by the image sync cron.
-  supplierSource    String   @default("aliexpress")
+  supplierSource      String    @default("aliexpress")
   // Direct listing URL when known; otherwise search uses supplierSearchQuery.
-  supplierUrl       String?
+  supplierUrl         String?
   supplierSearchQuery String?
-  imagesSyncedAt    DateTime?
-  providerKey       String?
-  externalId        String?
-  sourceUrl         String?
-  affiliateUrl      String?
-  fulfillmentMode   String   @default("MANUAL")
-  lastSupplierSyncAt DateTime?
-  supplierDataJson  String   @default("{}")
-  mediaStatus       String   @default("UNKNOWN")
-  qualityStatus     String   @default("NEEDS_REVIEW")
-  shippingDaysMin   Int
-  shippingDaysMax   Int
-  countryOfOrigin   String?
-  materials         String?
-  warranty          String?
-  returnable        Boolean  @default(true)
-  ratingAverage     Float?
-  ratingCount       Int      @default(0)
+  imagesSyncedAt      DateTime?
+  providerKey         String?
+  externalId          String?
+  sourceUrl           String?
+  affiliateUrl        String?
+  fulfillmentMode     String    @default("MANUAL")
+  lastSupplierSyncAt  DateTime?
+  supplierDataJson    String    @default("{}")
+  mediaStatus         String    @default("UNKNOWN")
+  qualityStatus       String    @default("NEEDS_REVIEW")
+  shippingDaysMin     Int
+  shippingDaysMax     Int
+  countryOfOrigin     String?
+  materials           String?
+  warranty            String?
+  returnable          Boolean   @default(true)
+  ratingAverage       Float?
+  ratingCount         Int       @default(0)
   // JSON-encoded string[] (use native Json on Postgres)
-  pros              String   @default("[]")
+  pros                String    @default("[]")
   // JSON-encoded string[]
-  cons              String   @default("[]")
+  cons                String    @default("[]")
   // JSON-encoded { label, value }[]
-  specs             String   @default("[]")
+  specs               String    @default("[]")
   // JSON-encoded string[] of use-case tags (drives quiz + recommendations)
-  useCases          String   @default("[]")
+  useCases            String    @default("[]")
   // JSON-encoded { question, answer }[]
-  faq               String   @default("[]")
-  seoTitle          String
-  seoDescription    String
-  canonicalUrl      String?
-  productScore      Float    @default(0)
-  isPublished       Boolean  @default(true)
-  noindex           Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  faq                 String    @default("[]")
+  seoTitle            String
+  seoDescription      String
+  canonicalUrl        String?
+  productScore        Float     @default(0)
+  isPublished         Boolean   @default(true)
+  noindex             Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  category Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  images   ProductImage[]
-  mediaAssets ProductMediaAsset[]
-  variants ProductVariant[]
-  orderItems OrderItem[]
-  wishlistItems WishlistItem[]
+  store                       Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category                    Category                     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  images                      ProductImage[]
+  mediaAssets                 ProductMediaAsset[]
+  variants                    ProductVariant[]
+  orderItems                  OrderItem[]
+  wishlistItems               WishlistItem[]
+  catalogSupplierObservations CatalogSupplierObservation[]
+  catalogRefreshProposals     CatalogRefreshProposal[]
+  catalogProductStates        CatalogProductState[]
+  catalogV2Product            CatalogProductV2?
 
   @@unique([storeId, slug])
   @@index([storeId, isPublished])
+  @@index([storeId, providerKey, externalId])
   @@index([categoryId])
 }
 
 model ProductImage {
-  id        String  @id @default(cuid())
-  productId String
-  url       String
-  alt       String  @default("")
-  sortOrder Int     @default(0)
-  isPrimary Boolean @default(false)
-  sourceUrl String?
-  storageKey String?
-  providerKey String?
-  externalId String?
-  contentHash String?
-  width Int?
-  height Int?
-  contentType String?
-  ingestionStatus String @default("LEGACY")
+  id              String  @id @default(cuid())
+  productId       String
+  url             String
+  alt             String  @default("")
+  sortOrder       Int     @default(0)
+  isPrimary       Boolean @default(false)
+  sourceUrl       String?
+  storageKey      String?
+  providerKey     String?
+  externalId      String?
+  contentHash     String?
+  width           Int?
+  height          Int?
+  contentType     String?
+  ingestionStatus String  @default("LEGACY")
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -248,8 +306,9 @@ model ProductVariant {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  orderItems OrderItem[]
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+  wishlistItems WishlistItem[]
 
   @@index([productId])
   @@index([externalVariantId])
@@ -279,19 +338,19 @@ model SupplierProvider {
 }
 
 model StoreSupplierSettings {
-  id                String   @id @default(cuid())
-  storeId           String
-  providerKey       String
-  isEnabled         Boolean  @default(true)
-  priority          Int      @default(0)
-  fulfillmentMode   String   @default("AFFILIATE")
-  importQueries     String   @default("[]")
-  excludedKeywords  String   @default("[]")
-  minMarginPercent  Float    @default(25)
-  minProductScore   Float    @default(75)
-  maxShippingDays   Int      @default(18)
-  autoPublish       Boolean  @default(false)
-  settingsJson      String   @default("{}")
+  id               String  @id @default(cuid())
+  storeId          String
+  providerKey      String
+  isEnabled        Boolean @default(true)
+  priority         Int     @default(0)
+  fulfillmentMode  String  @default("AFFILIATE")
+  importQueries    String  @default("[]")
+  excludedKeywords String  @default("[]")
+  minMarginPercent Float   @default(25)
+  minProductScore  Float   @default(75)
+  maxShippingDays  Int     @default(18)
+  autoPublish      Boolean @default(false)
+  settingsJson     String  @default("{}")
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -380,14 +439,14 @@ model ProductMediaAsset {
 }
 
 model CatalogSyncRun {
-  id          String    @id @default(cuid())
-  storeId     String?
-  providerKey String?
-  status      String    @default("RUNNING")
-  startedAt   DateTime  @default(now())
-  finishedAt  DateTime?
-  requestedBy String    @default("system")
-  summaryJson String    @default("{}")
+  id           String    @id @default(cuid())
+  storeId      String?
+  providerKey  String?
+  status       String    @default("RUNNING")
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  requestedBy  String    @default("system")
+  summaryJson  String    @default("{}")
   errorMessage String?
 
   store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
@@ -396,25 +455,177 @@ model CatalogSyncRun {
 }
 
 model CatalogJob {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   storeId     String
   providerKey String
   jobType     String
-  status      String   @default("QUEUED")
-  payloadJson String   @default("{}")
-  attempts    Int      @default(0)
-  maxAttempts Int      @default(3)
+  status      String    @default("QUEUED")
+  payloadJson String    @default("{}")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
   lockedAt    DateTime?
   lockedBy    String?
-  runAfter    DateTime @default(now())
+  runAfter    DateTime  @default(now())
   lastError   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([status, runAfter])
   @@index([storeId, jobType])
+}
+
+// One immutable, deterministic settlement record for a claimed refresh-job attempt.
+// catalogJobId/catalogSyncRunId intentionally remain correlation values instead of
+// foreign keys so that operational queue/audit retention cannot erase evidence.
+model CatalogRefreshExecution {
+  id                      String   @id
+  catalogJobId            String
+  catalogJobAttempt       Int
+  catalogSyncRunId        String?
+  storeId                 String
+  providerKey             String
+  mode                    String   @default("SHADOW")
+  handlerOutcome          String
+  settlementStatus        String
+  settlementCode          String
+  startedAt               DateTime
+  completedAt             DateTime
+  selected                Int      @default(0)
+  scanned                 Int      @default(0)
+  skippedFresh            Int      @default(0)
+  observed                Int      @default(0)
+  baselineCaptured        Int      @default(0)
+  unchanged               Int      @default(0)
+  proposed                Int      @default(0)
+  reviewRequired          Int      @default(0)
+  sourceUnavailable       Int      @default(0)
+  scanCursorStart         String?
+  scanCursorNext          String?
+  scanCursorRevisionStart Int      @default(0)
+  scanWrapped             Boolean  @default(false)
+  createdAt               DateTime @default(now())
+
+  store        Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  observations CatalogSupplierObservation[]
+
+  @@unique([catalogJobId, catalogJobAttempt])
+  @@index([storeId, providerKey, completedAt, id])
+  @@index([catalogSyncRunId])
+  @@index([settlementStatus, completedAt])
+}
+
+// Supplier evidence cannot be updated after insertion while retained. Parent
+// Store/Product retention deletes may still cascade deliberately.
+model CatalogSupplierObservation {
+  id                            String   @id @default(cuid())
+  idempotencyKey                String   @unique
+  executionId                   String
+  storeId                       String
+  productId                     String
+  providerKey                   String
+  externalId                    String
+  sourceStatus                  String
+  observedAt                    DateTime
+  productRevisionAt             DateTime
+  storefrontRevisionFingerprint String
+  snapshotVersion               String?
+  snapshotFingerprint           String?
+  snapshotJson                  String?
+  reasonCodesJson               String   @default("[]")
+  createdAt                     DateTime @default(now())
+
+  execution CatalogRefreshExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  store     Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product   Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  proposal  CatalogRefreshProposal?
+
+  @@unique([executionId, productId])
+  @@index([storeId, providerKey, observedAt, id])
+  @@index([productId, providerKey, observedAt, id])
+  @@index([providerKey, externalId, observedAt])
+  @@index([sourceStatus, observedAt])
+}
+
+// Proposal payloads are immutable. Only workflowStatus and its review/application
+// timestamps are intended to change after creation.
+model CatalogRefreshProposal {
+  id                  String    @id @default(cuid())
+  observationId       String    @unique
+  storeId             String
+  productId           String
+  providerKey         String
+  contractVersion     String
+  proposalFingerprint String
+  decision            String
+  alignmentStatus     String
+  reasonCodesJson     String    @default("[]")
+  changesJson         String    @default("[]")
+  alignmentJson       String    @default("{}")
+  workflowStatus      String    @default("RECORDED")
+  reviewedAt          DateTime?
+  reviewedBy          String?
+  appliedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  observation CatalogSupplierObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  store       Store                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product     Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, workflowStatus, createdAt, id])
+  @@index([storeId, decision, createdAt])
+  @@index([productId, providerKey, createdAt])
+  @@index([proposalFingerprint])
+}
+
+// Materialized current read model. Historical evidence remains in observations
+// and proposals; these latest-* identifiers are intentionally non-owning pointers.
+model CatalogProductState {
+  id                          String    @id @default(cuid())
+  storeId                     String
+  productId                   String
+  providerKey                 String
+  externalId                  String
+  latestExecutionId           String
+  latestObservationId         String
+  latestProposalId            String?
+  latestDecision              String
+  latestAlignmentStatus       String
+  latestSourceStatus          String
+  lastAttemptAt               DateTime
+  lastSuccessfulObservationId String?
+  lastSuccessfulObservationAt DateTime?
+  consecutiveFailures         Int       @default(0)
+  openProposalId              String?
+  openProposalStatus          String    @default("NONE")
+  updatedAt                   DateTime  @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, providerKey])
+  @@index([storeId, providerKey, lastAttemptAt])
+  @@index([storeId, openProposalStatus, updatedAt])
+  @@index([latestSourceStatus, lastAttemptAt])
+  @@index([providerKey, externalId])
+  @@index([openProposalId])
+}
+
+// Compare-and-swap cursor for fair, bounded scans within one store/provider lane.
+model CatalogRefreshCursor {
+  storeId         String
+  providerKey     String
+  lastProductId   String?
+  revision        Int      @default(0)
+  lastExecutionId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, providerKey])
+  @@index([updatedAt])
 }
 
 model Customer {
@@ -434,26 +645,26 @@ model Customer {
 }
 
 model Order {
-  id                  String   @id @default(cuid())
-  storeId             String
-  customerId          String?
-  orderNumber         String   @unique
-  status              String   @default("DRAFT")
-  paymentStatus       String   @default("UNPAID")
-  fulfillmentStatus   String   @default("NOT_STARTED")
-  paymentProvider     String?
+  id                    String   @id @default(cuid())
+  storeId               String
+  customerId            String?
+  orderNumber           String   @unique
+  status                String   @default("DRAFT")
+  paymentStatus         String   @default("UNPAID")
+  fulfillmentStatus     String   @default("NOT_STARTED")
+  paymentProvider       String?
   stripePaymentIntentId String?
-  paymentError        String?
-  currency            String
-  subtotal            Float
-  shippingTotal       Float    @default(0)
-  taxTotal            Float    @default(0)
-  grandTotal          Float
-  shippingAddressJson String   @default("{}")
-  billingAddressJson  String   @default("{}")
-  notes               String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  paymentError          String?
+  currency              String
+  subtotal              Float
+  shippingTotal         Float    @default(0)
+  taxTotal              Float    @default(0)
+  grandTotal            Float
+  shippingAddressJson   String   @default("{}")
+  billingAddressJson    String   @default("{}")
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -462,26 +673,26 @@ model Order {
 }
 
 model OrderItem {
-  id              String  @id @default(cuid())
-  orderId         String
-  productId       String
-  variantId       String?
-  quantity        Int
-  titleSnapshot   String
-  skuSnapshot     String
-  variantSnapshotJson String @default("{}")
-  externalVariantId String?
+  id                    String  @id @default(cuid())
+  orderId               String
+  productId             String
+  variantId             String?
+  quantity              Int
+  titleSnapshot         String
+  skuSnapshot           String
+  variantSnapshotJson   String  @default("{}")
+  externalVariantId     String?
   optionSummarySnapshot String?
-  unitPrice       Float
-  unitCost        Float?
-  providerKey     String?
-  externalId      String?
-  fulfillmentMode String  @default("MANUAL")
-  supplierOrderId String?
-  status          String  @default("PENDING")
+  unitPrice             Float
+  unitCost              Float?
+  providerKey           String?
+  externalId            String?
+  fulfillmentMode       String  @default("MANUAL")
+  supplierOrderId       String?
+  status                String  @default("PENDING")
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
@@ -521,7 +732,8 @@ model Wishlist {
   customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items    WishlistItem[]
 
-  @@index([storeId, anonymousId])
+  @@unique([storeId, anonymousId])
+  @@unique([storeId, customerId])
   @@index([storeId, email])
 }
 
@@ -529,12 +741,574 @@ model WishlistItem {
   id         String   @id @default(cuid())
   wishlistId String
   productId  String
+  variantId  String?
+  // Stable cart-style identity: product:<productId> or product:<productId>:variant:<variantId>.
+  itemKey    String
   createdAt  DateTime @default(now())
 
-  wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  wishlist Wishlist        @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
-  @@unique([wishlistId, productId])
+  @@unique([wishlistId, itemKey])
+  @@index([productId])
+  @@index([variantId])
+}
+
+// Store Factory V2 build requests are idempotent per store/request key. Input
+// and event history are durable audit evidence; no state here implies LIVE.
+model StoreBuildRun {
+  id                 String    @id
+  storeId            String
+  contractVersion    String
+  requestKey         String
+  inputDigest        String
+  outputDigest       String?
+  requestedBy        String
+  requestJson        String
+  status             String    @default("RUNNING")
+  phase              String    @default("RECEIVED")
+  briefJson          String
+  catalogShapeJson   String
+  catalogArtifactId  String
+  catalogBindingJson String
+  failureCode        String?
+  failureMessage     String?
+  startedAt          DateTime
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  store           Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  catalogArtifact CatalogArtifactV2 @relation("StoreBuildRunCatalogArtifact", fields: [storeId, catalogArtifactId], references: [storeId, id], onDelete: Restrict, onUpdate: Cascade)
+  revision        StoreRevision?
+  events          StoreBuildEvent[]
+
+  @@unique([storeId, requestKey])
+  @@index([storeId, status, createdAt])
+  @@index([inputDigest])
+}
+
+// Revision document fields are immutable after insertion. Only the explicit
+// DRAFT -> APPROVED/REJECTED review transition may update review metadata.
+model StoreRevision {
+  id                 String    @id
+  storeId            String
+  buildRunId         String    @unique
+  revisionNumber     Int
+  parentRevisionId   String?
+  catalogArtifactId  String
+  catalogBindingJson String
+  contractVersion    String
+  inputDigest        String
+  outputDigest       String
+  status             String    @default("DRAFT")
+  briefJson          String
+  catalogShapeJson   String
+  revisionJson       String
+  createdAt          DateTime  @default(now())
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  reviewReason       String?
+
+  store                Store                        @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  catalogArtifact      CatalogArtifactV2            @relation("StoreRevisionCatalogArtifact", fields: [storeId, catalogArtifactId], references: [storeId, id], onDelete: Restrict, onUpdate: Cascade)
+  buildRun             StoreBuildRun                @relation(fields: [buildRunId], references: [id], onDelete: Restrict)
+  parentRevision       StoreRevision?               @relation("StoreRevisionParent", fields: [parentRevisionId], references: [id], onDelete: Restrict)
+  childRevisions       StoreRevision[]              @relation("StoreRevisionParent")
+  activePreviewPointer StorePreviewRevisionPointer? @relation("ActivePreviewRevision")
+
+  @@unique([storeId, revisionNumber])
+  @@index([storeId, status, createdAt])
+  @@index([parentRevisionId])
+  @@index([inputDigest])
+}
+
+// Append-only phase and review history. SQL guards updates/deletes and assigns
+// one monotonically increasing sequence within each build run.
+model StoreBuildEvent {
+  id              String   @id
+  buildRunId      String
+  sequence        Int
+  contractVersion String
+  phase           String
+  eventType       String
+  payloadJson     String   @default("{}")
+  createdAt       DateTime @default(now())
+
+  buildRun StoreBuildRun @relation(fields: [buildRunId], references: [id], onDelete: Restrict)
+
+  @@unique([buildRunId, sequence])
+  @@index([buildRunId, createdAt])
+  @@index([eventType, createdAt])
+}
+
+// The only active-revision pointer is explicitly scoped to internal preview.
+// CAS callers update only when `version` matches their expected value.
+model StorePreviewRevisionPointer {
+  storeId                 String   @id
+  activePreviewRevisionId String?  @unique
+  contractVersion         String
+  version                 Int      @default(0)
+  lastAction              String   @default("NONE")
+  changedBy               String?
+  changeReason            String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  store                 Store          @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  activePreviewRevision StoreRevision? @relation("ActivePreviewRevision", fields: [activePreviewRevisionId], references: [id], onDelete: Restrict)
+
+  @@index([updatedAt])
+}
+
+// Provider-neutral Catalog Core V2. These models are additive; legacy Product
+// remains the checkout compatibility source until a store is migrated.
+model CatalogProductV2 {
+  id              String   @id @default(cuid())
+  storeId         String
+  legacyProductId String?  @unique
+  canonicalKey    String
+  status          String   @default("DRAFT")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store             Store                      @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  legacyProduct     Product?                   @relation(fields: [legacyProductId], references: [id], onDelete: Restrict)
+  revisions         CatalogProductRevisionV2[]
+  variantIdentities CatalogVariantIdentityV2[]
+  supplierOffers    CatalogSupplierOfferV2[]
+
+  @@unique([storeId, canonicalKey])
+  @@index([storeId, status, updatedAt])
+}
+
+// Stable product-level variant identity. Revision-specific sellable snapshots
+// and supplier offers both point here, avoiding cross-revision ambiguity.
+model CatalogVariantIdentityV2 {
+  id        String   @id
+  storeId   String
+  productId String
+  stableKey String
+  createdAt DateTime
+  updatedAt DateTime
+
+  store            Store                      @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  product          CatalogProductV2           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sellableVariants CatalogSellableVariantV2[]
+  supplierOffers   CatalogSupplierOfferV2[]
+
+  @@unique([productId, stableKey])
+  @@index([storeId, productId])
+}
+
+// Content, retail price and availability are snapshotted per revision. Money
+// is integer minor units; UNKNOWN is represented by state + null values.
+model CatalogProductRevisionV2 {
+  id                     String    @id @default(cuid())
+  storeId                String
+  artifactId             String
+  productId              String
+  artifactRevisionRef    String
+  revisionNumber         BigInt
+  contractVersion        String
+  source                 String
+  revisionState          String
+  slug                   String
+  title                  String
+  subtitle               String?
+  description            String
+  brand                  String?
+  seoTitle               String
+  seoDescription         String
+  retailPriceState       String    @default("UNKNOWN")
+  retailPriceMinor       BigInt?
+  currency               String?
+  compareAtPriceMinor    BigInt?
+  compareAtPriceCurrency String?
+  availability           String    @default("UNKNOWN")
+  purchasable            Boolean   @default(false)
+  revisionJson           String
+  contentDigest          String
+  reasonCodesJson        String    @default("[]")
+  createdAt              DateTime  @default(now())
+  sealedAt               DateTime?
+
+  store                Store                               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  artifact             CatalogArtifactV2                   @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  product              CatalogProductV2                    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variants             CatalogSellableVariantV2[]
+  taxonomyPlacements   CatalogProductTaxonomyPlacementV2[]
+  attributeDefinitions CatalogAttributeDefinitionV2[]
+  attributeValues      CatalogProductAttributeValueV2[]
+  purchaseOptions      CatalogPurchaseOptionV2[]
+  evidence             CatalogEvidenceV2[]
+  collectionItems      CatalogCollectionItemV2[]
+  mediaAssets          CatalogMediaAssetV2[]
+
+  @@unique([artifactId, productId, revisionNumber], map: "CatalogRevisionV2_artifact_product_number_key")
+  @@unique([artifactId, artifactRevisionRef], map: "CatalogRevisionV2_artifact_ref_key")
+  @@index([storeId, slug, revisionNumber])
+  @@index([artifactId])
+  @@index([storeId, createdAt])
+  @@index([contentDigest])
+}
+
+model CatalogSellableVariantV2 {
+  id                     String   @id @default(cuid())
+  storeId                String
+  productRevisionId      String
+  variantIdentityId      String
+  stableKey              String
+  label                  String
+  optionValuesJson       String   @default("{}")
+  retailPriceState       String?
+  retailPriceMinor       BigInt?
+  currency               String?
+  compareAtPriceMinor    BigInt?
+  compareAtPriceCurrency String?
+  availability           String   @default("UNKNOWN")
+  isDefault              Boolean  @default(false)
+  sortOrder              Int      @default(0)
+  createdAt              DateTime @default(now())
+
+  productRevision CatalogProductRevisionV2         @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  variantIdentity CatalogVariantIdentityV2         @relation(fields: [variantIdentityId], references: [id], onDelete: Restrict)
+  mediaLinks      CatalogMediaVariantV2[]
+  attributeValues CatalogProductAttributeValueV2[]
+  purchaseOptions CatalogPurchaseOptionV2[]
+
+  @@unique([productRevisionId, stableKey])
+  @@unique([productRevisionId, variantIdentityId], map: "CatalogVariantV2_revision_identity_key")
+  @@index([storeId, productRevisionId, sortOrder], map: "CatalogVariantV2_store_revision_sort_idx")
+}
+
+model CatalogTaxonomyNodeV2 {
+  id              String   @id @default(cuid())
+  storeId         String
+  artifactId      String
+  taxonomyRef     String
+  contractVersion String
+  parentId        String?
+  key             String
+  slug            String
+  title           String
+  description     String?
+  pathJson        String   @default("[]")
+  depth           Int      @default(0)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store                Store                                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  artifact             CatalogArtifactV2                      @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  parent               CatalogTaxonomyNodeV2?                 @relation("CatalogTaxonomyTreeV2", fields: [parentId], references: [id], onDelete: Restrict)
+  children             CatalogTaxonomyNodeV2[]                @relation("CatalogTaxonomyTreeV2")
+  productPlacements    CatalogProductTaxonomyPlacementV2[]
+  attributeDefinitions CatalogTaxonomyAttributeDefinitionV2[]
+
+  @@unique([artifactId, key])
+  @@unique([artifactId, pathJson])
+  @@index([storeId, taxonomyRef, parentId, sortOrder], map: "CatalogTaxonomyV2_store_parent_sort_idx")
+}
+
+model CatalogProductTaxonomyPlacementV2 {
+  storeId           String
+  productRevisionId String
+  taxonomyNodeId    String
+  isPrimary         Boolean @default(false)
+  sortOrder         Int     @default(0)
+
+  productRevision CatalogProductRevisionV2 @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  taxonomyNode    CatalogTaxonomyNodeV2    @relation(fields: [taxonomyNodeId], references: [id], onDelete: Restrict)
+
+  @@id([productRevisionId, taxonomyNodeId])
+  @@index([storeId, taxonomyNodeId, sortOrder], map: "CatalogPlacementV2_store_node_sort_idx")
+}
+
+model CatalogAttributeDefinitionV2 {
+  id                String   @id @default(cuid())
+  storeId           String
+  productRevisionId String
+  stableKey         String
+  key               String
+  label             String
+  valueType         String
+  cardinality       String
+  scope             String
+  variantAxis       Boolean  @default(false)
+  storefrontVisible Boolean  @default(false)
+  unitCode          String?
+  facetable         Boolean  @default(false)
+  comparable        Boolean  @default(false)
+  required          Boolean  @default(false)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  store              Store                                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevision    CatalogProductRevisionV2               @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  taxonomyPlacements CatalogTaxonomyAttributeDefinitionV2[]
+  options            CatalogAttributeOptionV2[]
+  values             CatalogProductAttributeValueV2[]
+
+  @@unique([productRevisionId, stableKey])
+  @@index([storeId, key])
+  @@index([storeId, productRevisionId, sortOrder], map: "CatalogAttrDefV2_store_revision_sort_idx")
+}
+
+model CatalogTaxonomyAttributeDefinitionV2 {
+  storeId        String
+  taxonomyNodeId String
+  definitionId   String
+  sortOrder      Int    @default(0)
+
+  store        Store                        @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  taxonomyNode CatalogTaxonomyNodeV2        @relation(fields: [taxonomyNodeId], references: [id], onDelete: Restrict)
+  definition   CatalogAttributeDefinitionV2 @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@id([taxonomyNodeId, definitionId])
+  @@index([storeId, taxonomyNodeId, sortOrder], map: "CatalogTaxonomyAttrV2_store_node_sort_idx")
+  @@index([storeId, definitionId])
+}
+
+model CatalogAttributeOptionV2 {
+  id           String   @id @default(cuid())
+  storeId      String
+  definitionId String
+  key          String
+  label        String
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  store      Store                        @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  definition CatalogAttributeDefinitionV2 @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([definitionId, key])
+  @@index([storeId, definitionId, sortOrder])
+}
+
+model CatalogProductAttributeValueV2 {
+  id                   String   @id @default(cuid())
+  storeId              String
+  productRevisionId    String
+  variantId            String?
+  definitionId         String
+  assignmentScopeKey   String
+  valuesJson           String
+  normalizedValuesJson String
+  createdAt            DateTime @default(now())
+
+  store           Store                        @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevision CatalogProductRevisionV2     @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  variant         CatalogSellableVariantV2?    @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  definition      CatalogAttributeDefinitionV2 @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([productRevisionId, assignmentScopeKey, definitionId], map: "CatalogAttrValueV2_revision_scope_definition_key")
+  @@index([productRevisionId, definitionId, variantId])
+  @@index([storeId, definitionId])
+  @@index([variantId])
+}
+
+model CatalogCollectionV2 {
+  id               String   @id @default(cuid())
+  storeId          String
+  artifactId       String
+  stableKey        String
+  contractVersion  String
+  slug             String
+  title            String
+  description      String?
+  seoTitle         String?
+  seoDescription   String?
+  kind             String   @default("MANUAL")
+  publicationState String   @default("INTERNAL")
+  position         Int      @default(0)
+  ruleJson         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  store    Store                     @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  artifact CatalogArtifactV2         @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  items    CatalogCollectionItemV2[]
+
+  @@unique([artifactId, stableKey])
+  @@unique([artifactId, slug])
+  @@index([storeId, updatedAt])
+}
+
+model CatalogCollectionItemV2 {
+  collectionId      String
+  productRevisionId String
+  storeId           String
+  sortOrder         Int    @default(0)
+  evidenceIdsJson   String @default("[]")
+
+  collection      CatalogCollectionV2      @relation(fields: [collectionId], references: [id], onDelete: Restrict)
+  productRevision CatalogProductRevisionV2 @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+
+  @@id([collectionId, productRevisionId])
+  @@index([storeId, collectionId, sortOrder])
+  @@index([storeId, productRevisionId])
+}
+
+model CatalogMediaAssetV2 {
+  id                String   @id @default(cuid())
+  storeId           String
+  productRevisionId String
+  stableKey         String
+  kind              String
+  role              String
+  publicationState  String
+  sortOrder         Int      @default(0)
+  publicUrl         String?
+  mimeType          String?
+  altText           String
+  width             Int?
+  height            Int?
+  focalX            Float?
+  focalY            Float?
+  sourceKind        String
+  sourceUrl         String?
+  rightsStatus      String
+  evidenceIdsJson   String   @default("[]")
+  createdAt         DateTime @default(now())
+
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevision CatalogProductRevisionV2 @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  variantLinks    CatalogMediaVariantV2[]
+
+  @@unique([productRevisionId, stableKey])
+  @@index([productRevisionId, role, sortOrder])
+  @@index([storeId, productRevisionId, sortOrder])
+  @@index([publicationState, rightsStatus])
+}
+
+model CatalogPurchaseOptionV2 {
+  id                     String   @id
+  storeId                String
+  productRevisionId      String
+  stableKey              String
+  kind                   String
+  label                  String
+  quantity               BigInt
+  variantId              String?
+  retailPriceState       String
+  retailPriceMinor       BigInt?
+  currency               String?
+  compareAtPriceMinor    BigInt?
+  compareAtPriceCurrency String?
+  availability           String
+  repeatPurchaseState    String
+  repeatIntervalDaysJson String   @default("[]")
+  sortOrder              Int      @default(0)
+  createdAt              DateTime
+
+  store           Store                     @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevision CatalogProductRevisionV2  @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  variant         CatalogSellableVariantV2? @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([productRevisionId, stableKey])
+  @@index([storeId, productRevisionId, sortOrder])
+  @@index([variantId])
+}
+
+model CatalogEvidenceV2 {
+  id                String   @id
+  storeId           String
+  productRevisionId String
+  stableKey         String
+  contractVersion   String
+  kind              String
+  state             String
+  subjectType       String
+  subjectRef        String
+  recordedAt        DateTime
+  sourceRef         String?
+  contentDigest     String
+  notesJson         String   @default("[]")
+  createdAt         DateTime
+
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  productRevision CatalogProductRevisionV2 @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+
+  @@unique([productRevisionId, stableKey])
+  @@index([storeId, subjectType, subjectRef])
+  @@index([contentDigest])
+}
+
+model CatalogMediaVariantV2 {
+  storeId   String
+  mediaId   String
+  variantId String
+
+  store   Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  media   CatalogMediaAssetV2      @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  variant CatalogSellableVariantV2 @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@id([mediaId, variantId])
+  @@index([storeId, variantId])
+}
+
+// Provider adapters may append offers and observations only. Observations are
+// immutable evidence; active storefront revisions are never updated here.
+model CatalogSupplierOfferV2 {
+  id                  String   @id @default(cuid())
+  storeId             String
+  productId           String
+  variantIdentityId   String?
+  contractVersion     String
+  stableKey           String
+  supplierAccountRef  String
+  sourceOfferRef      String
+  state               String   @default("UNKNOWN")
+  observedCurrency    String
+  latestObservationId String?  @unique
+  evidenceIdsJson     String   @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  store             Store                               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  product           CatalogProductV2                    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantIdentity   CatalogVariantIdentityV2?           @relation(fields: [variantIdentityId], references: [id], onDelete: Restrict)
+  observations      CatalogSupplierOfferObservationV2[] @relation("CatalogSupplierOfferObservationsV2")
+  latestObservation CatalogSupplierOfferObservationV2?  @relation("LatestCatalogSupplierObservationV2", fields: [latestObservationId], references: [id], onDelete: Restrict)
+
+  @@unique([storeId, stableKey])
+  @@index([storeId, productId, state])
+  @@index([storeId, supplierAccountRef, sourceOfferRef], map: "CatalogOfferV2_store_source_idx")
+}
+
+model CatalogSupplierOfferObservationV2 {
+  id                  String   @id @default(cuid())
+  storeId             String
+  offerId             String
+  contractVersion     String
+  stableKey           String
+  observedAt          DateTime
+  outcome             String   @default("UNKNOWN")
+  unitCostState       String   @default("UNKNOWN")
+  unitCostMinor       BigInt?
+  unitCostCurrency    String?
+  shippingState       String   @default("UNKNOWN")
+  shippingMinor       BigInt?
+  shippingCurrency    String?
+  inventoryState      String   @default("UNKNOWN")
+  inventoryQuantity   BigInt?
+  availability        String   @default("UNKNOWN")
+  shippingDaysMin     Int?
+  shippingDaysMax     Int?
+  sourcePayloadDigest String
+  evidenceIdsJson     String   @default("[]")
+  reasonCodesJson     String   @default("[]")
+  createdAt           DateTime @default(now())
+
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  offer           CatalogSupplierOfferV2   @relation("CatalogSupplierOfferObservationsV2", fields: [offerId], references: [id], onDelete: Restrict)
+  latestForOffers CatalogSupplierOfferV2[] @relation("LatestCatalogSupplierObservationV2")
+
+  @@unique([storeId, stableKey])
+  @@index([offerId, sourcePayloadDigest], map: "CatalogOfferObsV2_offer_payload_digest_idx")
+  @@index([storeId, offerId, observedAt], map: "CatalogOfferObsV2_store_offer_time_idx")
+  @@index([storeId, availability, observedAt], map: "CatalogOfferObsV2_store_availability_time_idx")
 }
 
 model ContentPage {

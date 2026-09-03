@@ -13,10 +13,13 @@ import {
   getString,
 } from "@/lib/actions/form";
 import {
+  parseStoreSettings,
+  preserveVersionedStoreArtifacts,
   serializeStoreSettings,
   storeSettingsSchema,
   type StoreSettings,
 } from "@/lib/settings/store-settings";
+import { decideAdminStoreRoutingMutation } from "@/lib/admin/store-routing-policy";
 
 export interface AdminActionState {
   ok: boolean;
@@ -161,24 +164,43 @@ export async function updateStoreAction(
     return { ok: false, error: "Shipping days max must be ≥ shipping days min." };
   }
 
-  const settings = readStoreSettingsForm(formData);
+  const formSettings = readStoreSettingsForm(formData);
 
-  // Hostnames: one per line; the one matching primaryDomain is flagged primary.
-  const hostnames = Array.from(
-    new Set(
-      [storeParsed.data.primaryDomain, ...getLines(formData, "domains")].map((host) =>
-        host.toLowerCase()
-      )
-    )
-  );
-
-  const store = await prisma.store.findUnique({ where: { slug } });
+  const store = await prisma.store.findUnique({
+    where: { slug },
+    include: { settings: true },
+  });
   if (!store) return { ok: false, error: "Store not found." };
+  // Generation evidence is system-owned. A normal brand/settings edit must not
+  // erase or forge the persisted V3 launch contract.
+  const currentSettings = parseStoreSettings(store.settings?.settings);
+  const settings: StoreSettings = preserveVersionedStoreArtifacts(
+    formSettings,
+    currentSettings
+  );
+  const foundationDraft = store.launchStatus === "DRAFT";
+  const routing = decideAdminStoreRoutingMutation({
+    launchStatus: store.launchStatus,
+    currentPrimaryDomain: store.primaryDomain,
+    requestedPrimaryDomain: storeParsed.data.primaryDomain,
+    requestedIsActive: storeParsed.data.isActive,
+    requestedAdditionalDomains: getLines(formData, "domains"),
+  });
+  const effectiveStoreData = {
+    ...storeParsed.data,
+    primaryDomain: routing.primaryDomain,
+    isActive: routing.isActive,
+  };
+  // DRAFT foundations retain hostname intent only. Routing rows and tenant
+  // activation stay locked until a separate verified launch workflow exists.
+  const hostnames = routing.hostnames;
 
   // Guard against stealing a domain already mapped to another store.
-  const conflict = await prisma.domain.findFirst({
-    where: { hostname: { in: hostnames }, storeId: { not: store.id } },
-  });
+  const conflict = foundationDraft
+    ? null
+    : await prisma.domain.findFirst({
+        where: { hostname: { in: hostnames }, storeId: { not: store.id } },
+      });
   if (conflict) {
     return { ok: false, error: `Domain ${conflict.hostname} is already used by another store.` };
   }
@@ -187,7 +209,7 @@ export async function updateStoreAction(
     await tx.store.update({
       where: { id: store.id },
       data: {
-        ...storeParsed.data,
+        ...effectiveStoreData,
         theme: {
           upsert: {
             create: themeParsed.data,
@@ -203,19 +225,27 @@ export async function updateStoreAction(
       },
     });
 
-    await tx.domain.deleteMany({ where: { storeId: store.id } });
-    await tx.domain.createMany({
-      data: hostnames.map((hostname) => ({
-        storeId: store.id,
-        hostname,
-        isPrimary: hostname === storeParsed.data.primaryDomain.toLowerCase(),
-      })),
-    });
+    if (routing.mutateDomainRows) {
+      await tx.domain.deleteMany({ where: { storeId: store.id } });
+      await tx.domain.createMany({
+        data: hostnames.map((hostname) => ({
+          storeId: store.id,
+          hostname,
+          isPrimary: hostname === effectiveStoreData.primaryDomain.toLowerCase(),
+        })),
+      });
+    }
   });
 
   revalidatePath(`/s/${slug}`, "layout");
   revalidatePath("/admin/stores");
   revalidatePath(`/admin/stores/${slug}/edit`);
 
-  return { ok: true, error: null, message: "Store saved." };
+  return {
+    ok: true,
+    error: null,
+    message: foundationDraft
+      ? "Foundation DRAFT saved. Tenant activation and domain routing remained locked."
+      : "Store saved.",
+  };
 }

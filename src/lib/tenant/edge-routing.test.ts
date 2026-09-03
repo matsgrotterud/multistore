@@ -1,6 +1,90 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowInternalStorePath, selectEdgeTenant } from "./edge-routing";
+import {
+  allowInternalStorePath,
+  resolveMiddlewareHostStore,
+  selectEdgeTenant,
+} from "./edge-routing";
+
+test("production resolver remains authoritative even when a static alias exists", async () => {
+  let resolverCalls = 0;
+
+  const store = await resolveMiddlewareHostStore({
+    isProduction: true,
+    host: "known.example",
+    staticStore: "known-store",
+    resolveProductionHost: async (host) => {
+      resolverCalls += 1;
+      return host === "known.example" ? "known-store" : null;
+    },
+  });
+
+  assert.equal(store, "known-store");
+  assert.equal(resolverCalls, 1);
+});
+
+test("middleware rejects a static production candidate that is still PREVIEW", async () => {
+  const store = await resolveMiddlewareHostStore({
+    isProduction: true,
+    host: "preview.example",
+    staticStore: "preview-store",
+    resolveProductionHost: async () => null,
+  });
+
+  assert.equal(store, null);
+  assert.deepEqual(
+    selectEdgeTenant({
+      isProduction: true,
+      hostStore: store,
+      queryStore: "preview-store",
+      cookieStore: "preview-store",
+      defaultStore: "preview-store",
+    }),
+    { kind: "NOT_FOUND" }
+  );
+});
+
+test("middleware resolves an unknown static production host from the domain table", async () => {
+  const store = await resolveMiddlewareHostStore({
+    isProduction: true,
+    host: "dynamic.example",
+    staticStore: null,
+    resolveProductionHost: async (host) =>
+      host === "dynamic.example" ? "dynamic-store" : null,
+  });
+
+  assert.equal(store, "dynamic-store");
+});
+
+test("middleware fails closed when production domain resolution is unavailable", async () => {
+  const store = await resolveMiddlewareHostStore({
+    isProduction: true,
+    host: "unknown.example",
+    staticStore: null,
+    resolveProductionHost: async () => {
+      throw new Error("database unavailable");
+    },
+  });
+
+  assert.equal(store, null);
+});
+
+test("middleware does not add a database lookup to development tenant selection", async () => {
+  let resolverCalls = 0;
+
+  const store = await resolveMiddlewareHostStore({
+    isProduction: false,
+    host: "localhost:3010",
+    staticStore: "mapped-dev-store",
+    resolveProductionHost: async () => {
+      resolverCalls += 1;
+      return "database-store";
+    },
+  });
+
+  assert.equal(store, "mapped-dev-store");
+  assert.equal(resolverCalls, 0);
+});
 
 test("a recognized host cannot be overridden by query or cookie", () => {
   assert.deepEqual(
@@ -39,6 +123,25 @@ test("development can select a preview tenant without weakening production", () 
     }),
     { kind: "STORE", slug: "query-store", rememberInCookie: true }
   );
-  assert.equal(allowInternalStorePath(false), true);
-  assert.equal(allowInternalStorePath(true), false);
+  assert.equal(
+    allowInternalStorePath({
+      isProduction: false,
+      hasVerifiedAdminSession: false,
+    }),
+    true
+  );
+  assert.equal(
+    allowInternalStorePath({
+      isProduction: true,
+      hasVerifiedAdminSession: false,
+    }),
+    false
+  );
+  assert.equal(
+    allowInternalStorePath({
+      isProduction: true,
+      hasVerifiedAdminSession: true,
+    }),
+    true
+  );
 });
