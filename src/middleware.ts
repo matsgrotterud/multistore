@@ -6,6 +6,7 @@ import {
 } from "@/config/domain-map";
 import {
   allowInternalStorePath,
+  isDeploymentControlPlaneRoot,
   resolveMiddlewareHostStore,
   selectEdgeTenant,
 } from "@/lib/tenant/edge-routing";
@@ -41,11 +42,33 @@ const PASSTHROUGH_PREFIXES = [
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   const isProduction = process.env.NODE_ENV === "production";
+  const host = request.headers.get("host") ?? request.nextUrl.host;
 
   // Static files (robots.txt, sitemap.xml, favicon.ico, images, ...) and
   // metadata routes resolve their own tenant from the Host header.
   if (/\.[A-Za-z0-9]+$/.test(pathname)) {
     return NextResponse.next();
+  }
+
+  // The shared Vercel/deployment hostname belongs to the control plane, not a
+  // storefront tenant. Keep this exception limited to the exact root path;
+  // clean storefront paths still require an authoritative LIVE Domain row.
+  if (
+    isDeploymentControlPlaneRoot({
+      isProduction,
+      pathname,
+      requestHost: host,
+      configuredHosts: [
+        process.env.NEXT_PUBLIC_SITE_URL,
+        process.env.VERCEL_PROJECT_PRODUCTION_URL,
+        process.env.VERCEL_URL,
+      ],
+    })
+  ) {
+    const adminUrl = request.nextUrl.clone();
+    adminUrl.pathname = "/admin";
+    adminUrl.search = "";
+    return NextResponse.redirect(adminUrl);
   }
 
   // Direct internal-path access: pass through but remember the store so that
@@ -79,7 +102,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const queryStore = searchParams.get("store");
-  const host = request.headers.get("host") ?? "";
   // The checked-in map is a development convenience only. Production uses
   // the Domain table as the single routing authority.
   const staticHostStore = isProduction ? null : resolveStoreSlugFromHost(host);

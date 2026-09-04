@@ -20,12 +20,85 @@ const mutableProcessEnvironment = process.env as Record<
 >;
 
 function restoreEnvironment(
-  key: "NODE_ENV" | "ADMIN_PASSWORD" | "ADMIN_SESSION_SECRET",
+  key:
+    | "NODE_ENV"
+    | "ADMIN_PASSWORD"
+    | "ADMIN_SESSION_SECRET"
+    | "NEXT_PUBLIC_SITE_URL"
+    | "VERCEL_PROJECT_PRODUCTION_URL"
+    | "VERCEL_URL",
   value: string | undefined
 ) {
   if (value === undefined) delete mutableProcessEnvironment[key];
   else mutableProcessEnvironment[key] = value;
 }
+
+test("production deployment root redirects to the admin control plane", async () => {
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+  };
+
+  try {
+    mutableProcessEnvironment.NODE_ENV = "production";
+    mutableProcessEnvironment.NEXT_PUBLIC_SITE_URL =
+      "https://multistore-virid.vercel.app";
+
+    const response = await middleware(
+      new NextRequest("https://multistore-virid.vercel.app/")
+    );
+
+    assert.equal(response.status, 307);
+    assert.equal(
+      response.headers.get("location"),
+      "https://multistore-virid.vercel.app/admin"
+    );
+  } finally {
+    restoreEnvironment("NODE_ENV", previous.NODE_ENV);
+    restoreEnvironment(
+      "NEXT_PUBLIC_SITE_URL",
+      previous.NEXT_PUBLIC_SITE_URL
+    );
+  }
+});
+
+test("production deployment root can use the Vercel system hostname", async () => {
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+    VERCEL_PROJECT_PRODUCTION_URL:
+      process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    VERCEL_URL: process.env.VERCEL_URL,
+  };
+
+  try {
+    mutableProcessEnvironment.NODE_ENV = "production";
+    delete mutableProcessEnvironment.NEXT_PUBLIC_SITE_URL;
+    delete mutableProcessEnvironment.VERCEL_PROJECT_PRODUCTION_URL;
+    mutableProcessEnvironment.VERCEL_URL = "multistore-virid.vercel.app";
+
+    const response = await middleware(
+      new NextRequest("https://multistore-virid.vercel.app/")
+    );
+
+    assert.equal(response.status, 307);
+    assert.equal(
+      response.headers.get("location"),
+      "https://multistore-virid.vercel.app/admin"
+    );
+  } finally {
+    restoreEnvironment("NODE_ENV", previous.NODE_ENV);
+    restoreEnvironment(
+      "NEXT_PUBLIC_SITE_URL",
+      previous.NEXT_PUBLIC_SITE_URL
+    );
+    restoreEnvironment(
+      "VERCEL_PROJECT_PRODUCTION_URL",
+      previous.VERCEL_PROJECT_PRODUCTION_URL
+    );
+    restoreEnvironment("VERCEL_URL", previous.VERCEL_URL);
+  }
+});
 
 test("production /s preview is available only to a verified admin session", async () => {
   const previous = {

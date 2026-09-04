@@ -17,6 +17,43 @@ export interface MiddlewareHostStoreInput {
   resolveProductionHost: (host: string) => Promise<string | null>;
 }
 
+function normalizeVercelDeploymentHost(value: string): string | null {
+  const candidate = value.trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(
+      candidate.includes("://") ? candidate : `https://${candidate}`
+    );
+    if (!url.hostname.toLowerCase().endsWith(".vercel.app")) return null;
+    return url.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The shared deployment host is the control-plane entry point, not a tenant.
+ * Match it exactly so lookalike or unknown production hosts still fail closed.
+ */
+export function isDeploymentControlPlaneRoot(input: {
+  isProduction: boolean;
+  pathname: string;
+  requestHost: string;
+  configuredHosts: Array<string | null | undefined>;
+}): boolean {
+  if (!input.isProduction || input.pathname !== "/") return false;
+
+  const requestHost = normalizeVercelDeploymentHost(input.requestHost);
+  if (!requestHost) return false;
+
+  return input.configuredHosts.some(
+    (configuredHost) =>
+      Boolean(configuredHost) &&
+      normalizeVercelDeploymentHost(configuredHost ?? "") === requestHost
+  );
+}
+
 /**
  * Production always uses the durable Domain resolver as its single authority.
  * The static map is development-only. Resolver errors are deliberately

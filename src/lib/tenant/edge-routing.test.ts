@@ -2,9 +2,63 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   allowInternalStorePath,
+  isDeploymentControlPlaneRoot,
   resolveMiddlewareHostStore,
   selectEdgeTenant,
 } from "./edge-routing";
+
+test("only the exact configured production deployment root enters the control plane", () => {
+  const configuredHosts = [
+    "https://multistore-virid.vercel.app/",
+    "multistore-preview.vercel.app",
+  ];
+
+  assert.equal(
+    isDeploymentControlPlaneRoot({
+      isProduction: true,
+      pathname: "/",
+      requestHost: "MULTISTORE-VIRID.VERCEL.APP",
+      configuredHosts,
+    }),
+    true
+  );
+  assert.equal(
+    isDeploymentControlPlaneRoot({
+      isProduction: true,
+      pathname: "/p/example",
+      requestHost: "multistore-virid.vercel.app",
+      configuredHosts,
+    }),
+    false
+  );
+  assert.equal(
+    isDeploymentControlPlaneRoot({
+      isProduction: true,
+      pathname: "/",
+      requestHost: "shop.customer.example",
+      configuredHosts: ["https://shop.customer.example"],
+    }),
+    false
+  );
+  assert.equal(
+    isDeploymentControlPlaneRoot({
+      isProduction: true,
+      pathname: "/",
+      requestHost: "multistore-virid.vercel.app.attacker.example",
+      configuredHosts,
+    }),
+    false
+  );
+  assert.equal(
+    isDeploymentControlPlaneRoot({
+      isProduction: false,
+      pathname: "/",
+      requestHost: "multistore-virid.vercel.app",
+      configuredHosts,
+    }),
+    false
+  );
+});
 
 test("production resolver remains authoritative even when a static alias exists", async () => {
   let resolverCalls = 0;
